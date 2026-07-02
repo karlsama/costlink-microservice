@@ -134,7 +134,8 @@ Gateway 需要知道 Auth 的路径才能配路由，但只需要路径字符串
 
 **支撑服务组** 完全独立：
 ```
-OCR → 接收 MQ 事件或 HTTP 请求 → 调用百度 API → 返回/回写结果
+OCR → 接收 REIMBURSEMENT_SUBMITTED 事件 → 调用百度 API
+     → 识别完成后发送 OCR_COMPLETED/FAILED 事件 → 报销服务消费并回写
 通知 → 消费 MQ 事件 → 渲染模板 → 推送
 报表 → 连接只读数据库 → 查询 → 返回 → 导出
 ```
@@ -475,6 +476,8 @@ public class MqConstants {
     public static final String EXCHANGE_APPROVAL = "costlink.approval";
     public static final String EXCHANGE_BUDGET = "costlink.budget";
 
+    public static final String EXCHANGE_OCR = "costlink.ocr";
+
     // 报销事件路由键
     public static final String RK_REIMBURSEMENT_SUBMITTED = "reimbursement.submitted";
     public static final String RK_REIMBURSEMENT_APPROVED = "reimbursement.approved";
@@ -488,6 +491,10 @@ public class MqConstants {
     // 预算事件路由键
     public static final String RK_BUDGET_EXCEEDED = "budget.exceeded";
     public static final String RK_BUDGET_FROZEN = "budget.frozen";
+
+    // OCR 事件路由键
+    public static final String RK_OCR_COMPLETED = "ocr.completed";
+    public static final String RK_OCR_FAILED = "ocr.failed";
 }
 
 // 报销提交事件

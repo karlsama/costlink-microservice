@@ -361,6 +361,10 @@ Exchange: costlink.budget (topic)
 ├── Queue: budget.frozen            → 通知服务(预占通知申请人)
 ├── Queue: budget.exceeded          → 通知服务(预算预警)
 └── Queue: budget.adjusted          → 报表服务
+
+Exchange: costlink.ocr (topic)
+├── Queue: ocr.completed            → 报销服务(回写OCR结果到attachment表)
+└── Queue: ocr.failed               → 报销服务(标记OCR失败)
 ```
 
 **消息体结构规范**:

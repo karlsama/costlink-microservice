@@ -56,21 +56,32 @@
 │  │  │  │ :8081    │ │ :8082    │ │ :8083    │        │  │  │
 │  │  │  └──────────┘ └──────────┘ └──────────┘        │  │  │
 │  │  │                                                  │  │  │
-│  │  │  访问 Windows 服务: host.docker.internal         │  │  │
-│  │  │  ├─ Nacos:  host.docker.internal:8848           │  │  │
-│  │  │  └─ MySQL:  host.docker.internal:3306           │  │  │
+│  │  │  Nacos (host 网络模式)                            │  │  │
+│  │  │  ├─ 共享宿主机 127.0.0.1:8848                    │  │  │
+│  │  │  ├─ 访问 MySQL: 127.0.0.1:3306 (Windows)         │  │  │
+│  │  │  └─ 访问 Redis/RabbitMQ: 容器名 (bridge 网络)     │  │  │
+│  │  │                                                  │  │  │
+│  │  │  微服务容器(bridge 网络)                           │  │  │
+│  │  │  ├─ 访问 Redis: redis:6379                       │  │  │
+│  │  │  ├─ 访问 RabbitMQ: rabbitmq:5672                 │  │  │
+│  │  │  └─ 访问 Nacos: 开发阶段 IDE 直连 127.0.0.1:8848 │  │  │
+│  │  │      (bridge 容器无法穿透到 Windows 端口)          │  │  │
 │  │  └──────────────────────────────────────────────────┘  │  │
 │  └────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-### 1.2 三条连接规则
+### 1.2 连接规则（实际验证通过的版本）
 
 | 谁访问谁 | 地址写法 | 说明 |
 |---------|---------|------|
-| **Nacos → MySQL** | `127.0.0.1:3306` | Nacos 在 Windows 本机，MySQL 也在本机，直连 |
-| **Docker 容器 → Nacos** | `host.docker.internal:8848` | 容器通过 Docker 内置 DNS 穿透到 Windows |
-| **Docker 容器 → MySQL** | `host.docker.internal:3306` | 同上 |
+| **Nacos → MySQL** | `127.0.0.1:3306` | Nacos 用 host 网络模式，共享宿主机网络栈，直连 Windows MySQL |
+| **IDE 起的服务 → Nacos** | `127.0.0.1:8848` | 服务跑在 Windows 上，Nacos 在 Docker host 网络 8848 端口 |
+| **IDE 起的服务 → MySQL** | `127.0.0.1:3306` | 同在 Windows |
+| **Docker 容器 → Redis/RabbitMQ** | `redis:6379` / `rabbitmq:5672` | 同在 bridge 网络，容器名互访 |
+| **Docker bridge 容器 → Windows** | ❌ 不通 | Docker Desktop WSL2 限制，bridge 容器无法访问宿主端口 |
+
+> 开发阶段微服务在 IDE 跑（非 Docker），所有 `127.0.0.1` 直连。集成阶段的 bridge 容器访问 Windows 问题后续单独解决。
 
 **关键点**: Docker 容器内部写 `127.0.0.1` 指向的是容器自己，不是 Windows。所以所有需要访问 Windows 上服务的容器，一律用 `host.docker.internal`。这个域名是 Docker Desktop 自动注入的，无需额外配置。
 
