@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS `department` (
 
 -- 初始管理员账号 (密码: admin123)
 INSERT INTO `user` (id, username, password, display_name, role, department_id, department_name) VALUES
-(1, 'admin', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iAt6Z5Eh', '系统管理员', 'ADMIN', 0, '总经办');
+(1, 'admin', '$2b$10$ZKRnQ32Zc2kwQWoVJTmRgusBpFvb1I4RYwyYOJDCCBVX3q0V4CUZu', '系统管理员', 'ADMIN', 0, '总经办');
 
 
 -- ============================================================
