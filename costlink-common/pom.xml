@@ -16,10 +16,17 @@
     <description>公共模块 — DTO、Feign接口契约、MQ事件、异常处理、工具类</description>
 
     <dependencies>
-        <!-- Spring Boot Web（Result、异常处理、Filter 依赖它） -->
+        <!-- Spring Web（只用注解和 Filter 支持，不带 Tomcat） -->
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-web</artifactId>
+        </dependency>
+
+        <!-- Servlet API（UserContext Filter 依赖，provided: 运行时不带实现） -->
+        <dependency>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
+            <scope>provided</scope>
         </dependency>
 
         <!-- Spring Boot Validation（DTO 参数校验） -->

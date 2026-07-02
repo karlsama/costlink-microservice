@@ -11,6 +11,7 @@ public final class MqConstants {
     public static final String EXCHANGE_REIMBURSEMENT = "costlink.reimbursement";
     public static final String EXCHANGE_APPROVAL      = "costlink.approval";
     public static final String EXCHANGE_BUDGET        = "costlink.budget";
+    public static final String EXCHANGE_OCR           = "costlink.ocr";
 
     // ========== 报销事件路由键 ==========
     /** 报销单已提交 → 预算服务(冻结) + OCR服务(识别) */
@@ -34,6 +35,12 @@ public final class MqConstants {
     /** 预算冻结 → 通知服务 */
     public static final String RK_BUDGET_FROZEN           = "budget.frozen";
 
+    // ========== OCR 事件路由键 ==========
+    /** OCR 识别完成 → 报销服务(回写识别结果到 attachment 表) */
+    public static final String RK_OCR_COMPLETED           = "ocr.completed";
+    /** OCR 识别失败 → 报销服务(标记 attachment 为失败) */
+    public static final String RK_OCR_FAILED              = "ocr.failed";
+
     // ========== 队列名 ==========
     public static final String QUEUE_REIMBURSEMENT_SUBMITTED = "q.reimbursement.submitted";
     public static final String QUEUE_REIMBURSEMENT_APPROVED  = "q.reimbursement.approved";
@@ -43,4 +50,6 @@ public final class MqConstants {
     public static final String QUEUE_APPROVAL_NODE_COMPLETED = "q.approval.node.completed";
     public static final String QUEUE_BUDGET_EXCEEDED         = "q.budget.exceeded";
     public static final String QUEUE_BUDGET_FROZEN           = "q.budget.frozen";
+    public static final String QUEUE_OCR_COMPLETED           = "q.ocr.completed";
+    public static final String QUEUE_OCR_FAILED              = "q.ocr.failed";
 }
