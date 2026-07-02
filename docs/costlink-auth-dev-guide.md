@@ -555,7 +555,7 @@ spring:
 ```yaml
 spring:
   datasource:
-    url: jdbc:mysql://127.0.0.1:3306/costlink_shared?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8
+    url: jdbc:mysql://127.0.0.1:3306/costlink_shared?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8&allowPublicKeyRetrieval=true
     username: ${DB_USERNAME:root}
     password: ${DB_PASSWORD:}
 mybatis-plus:

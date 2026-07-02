@@ -8,7 +8,6 @@ import lombok.extern.slf4j.Slf4j;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
@@ -30,9 +29,9 @@ public class JwtUtil {
     }
 
     private SecretKey getSigningKey() {
-        byte[] keyBytes = Base64.getEncoder().encode(
-            secret.getBytes(StandardCharsets.UTF_8)
-        );
+        // HMAC-SHA256 要求密钥至少 256 位（32 字节）
+        // 简单做法：直接用 secret 的 UTF-8 字节作为密钥
+        byte[] keyBytes = secret.getBytes(StandardCharsets.UTF_8);
         return new SecretKeySpec(keyBytes, "HmacSHA256");
     }
 
