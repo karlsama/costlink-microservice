@@ -234,78 +234,6 @@ public interface AuthService {
 }
 ```
 
-### 4.6 AuthServiceImpl.java（核心逻辑）
-
-```java
-@Service
-@RequiredArgsConstructor
-@Slf4j
-public class AuthServiceImpl implements AuthService {
-
-    private final UserMapper userMapper;
-    private final StringRedisTemplate redisTemplate;
-    private final PasswordEncoder passwordEncoder;
-    private final JwtUtil jwtUtil;           // ← common 中的 JwtUtil，下文有 Bean 配置
-
-    @Override
-    public Result<LoginResponse> login(LoginRequest request) {
-        // 1. 查用户
-        User user = userMapper.selectOne(
-            new LambdaQueryWrapper<User>()
-                .eq(User::getUsername, request.getUsername())
-        );
-        if (user == null) {
-            throw new BusinessException(ErrorCode.AUTH_LOGIN_FAILED);
-        }
-        if (!"ACTIVE".equals(user.getStatus())) {
-            throw new BusinessException(ErrorCode.AUTH_ACCOUNT_DISABLED);
-        }
-
-        // 2. 验密码
-        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
-            throw new BusinessException(ErrorCode.AUTH_LOGIN_FAILED);
-        }
-
-        // 3. 生成双 Token
-        String accessToken = jwtUtil.generateAccessToken(
-            user.getId(), user.getRole(), user.getDepartmentId()
-        );
-        String refreshToken = jwtUtil.generateRefreshToken(user.getId());
-        long expiresIn = jwtUtil.getAccessTokenTtl();
-
-        // 4. Refresh Token 存 Redis（登出时可删除）
-        redisTemplate.opsForValue().set(
-            "auth:refresh:" + user.getId(),
-            refreshToken,
-            jwtUtil.getRefreshTokenTtl(),
-            TimeUnit.DAYS
-        );
-
-        // 5. 构建返回
-        log.info("登录成功, userId={}, username={}", user.getId(), user.getUsername());
-        return Result.ok(LoginResponse.builder()
-            .accessToken(accessToken)
-            .refreshToken(refreshToken)
-            .expiresIn(expiresIn)
-            .userInfo(toDTO(user))
-            .build()
-        );
-    }
-
-    private AuthClient.UserInfoDTO toDTO(User user) {
-        AuthClient.UserInfoDTO dto = new AuthClient.UserInfoDTO();
-        dto.setId(user.getId());
-        dto.setUsername(user.getUsername());
-        dto.setDisplayName(user.getDisplayName());
-        dto.setRole(user.getRole());
-        dto.setDepartmentId(user.getDepartmentId());
-        dto.setDepartmentName(user.getDepartmentName());
-        dto.setEmail(user.getEmail());
-        return dto;
-    }
-}
-```
-
 ### 4.6 AuthController.java
 
 ```java
@@ -328,10 +256,99 @@ public class AuthController {
 
     @PostMapping("/logout")
     public Result<Void> logout() {
-        // 从 UserContext 拿当前用户，把 Refresh Token 从 Redis 删掉即可
         authService.logout(UserContext.getUserId());
         return Result.ok();
     }
+}
+```
+
+### 4.7 AuthServiceImpl.java（核心逻辑，含 login/refresh/logout）
+
+```java
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class AuthServiceImpl implements AuthService {
+
+    private final UserMapper userMapper;
+    private final StringRedisTemplate redisTemplate;
+    private final PasswordEncoder passwordEncoder;
+    private final JwtUtil jwtUtil;
+
+    @Override
+    public Result<LoginResponse> login(LoginRequest request) {
+        User user = userMapper.selectOne(
+            new LambdaQueryWrapper<User>().eq(User::getUsername, request.getUsername())
+        );
+        if (user == null) {
+            throw new BusinessException(ErrorCode.AUTH_LOGIN_FAILED);
+        }
+        if (!"ACTIVE".equals(user.getStatus())) {
+            throw new BusinessException(ErrorCode.AUTH_ACCOUNT_DISABLED);
+        }
+        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+            throw new BusinessException(ErrorCode.AUTH_LOGIN_FAILED);
+        }
+        return Result.ok(buildLoginResponse(user));
+    }
+
+    @Override
+    public Result<LoginResponse> refresh(RefreshRequest request) {
+        // 解析 Refresh Token，拿到 userId
+        Claims claims;
+        try {
+            claims = jwtUtil.parseToken(request.getRefreshToken());
+        } catch (JwtException e) {
+            throw new BusinessException(ErrorCode.AUTH_TOKEN_EXPIRED);
+        }
+        Long userId = Long.valueOf(claims.getSubject());
+
+        // 验证 Redis 中的 Refresh Token 是否匹配
+        String storedToken = redisTemplate.opsForValue().get("auth:refresh:" + userId);
+        if (storedToken == null || !storedToken.equals(request.getRefreshToken())) {
+            throw new BusinessException(ErrorCode.AUTH_TOKEN_EXPIRED);
+        }
+
+        // 查用户信息，重新签发
+        User user = userMapper.selectById(userId);
+        if (user == null || !"ACTIVE".equals(user.getStatus())) {
+            throw new BusinessException(ErrorCode.AUTH_ACCOUNT_DISABLED);
+        }
+
+        log.info("Token刷新成功, userId={}", userId);
+        return Result.ok(buildLoginResponse(user));
+    }
+
+    @Override
+    public void logout(Long userId) {
+        redisTemplate.delete("auth:refresh:" + userId);
+        log.info("登出成功, userId={}", userId);
+    }
+
+    // ========== 私有方法 ==========
+
+    private LoginResponse buildLoginResponse(User user) {
+        String accessToken = jwtUtil.generateAccessToken(
+            user.getId(), user.getRole(), user.getDepartmentId()
+        );
+        String refreshToken = jwtUtil.generateRefreshToken(user.getId());
+
+        redisTemplate.opsForValue().set(
+            "auth:refresh:" + user.getId(),
+            refreshToken,
+            jwtUtil.getRefreshTokenTtl(),
+            TimeUnit.DAYS
+        );
+
+        return LoginResponse.builder()
+            .accessToken(accessToken)
+            .refreshToken(refreshToken)
+            .expiresIn(jwtUtil.getAccessTokenTtl())
+            .userInfo(toDTO(user))
+            .build();
+    }
+
+    private AuthClient.UserInfoDTO toDTO(User user) { ... }  // 同之前的版本
 }
 ```
 
@@ -397,12 +414,14 @@ public class InternalUserController {
 }
 ```
 
-### 4.9 SecurityConfig.java
+### 4.9 SecurityConfig.java（含 JWT 过滤器）
 
 ```java
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
+
+    private final JwtUtil jwtUtil;
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -411,10 +430,49 @@ public class SecurityConfig {
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/auth/login", "/api/auth/refresh").permitAll()
-                .requestMatchers("/internal/**").permitAll()  // Feign 内部调用不走鉴权
+                .requestMatchers("/internal/**").permitAll()
                 .anyRequest().authenticated()
-            );
+            )
+            .addFilterBefore(jwtAuthFilter(), UsernamePasswordAuthenticationFilter.class);
         return http.build();
+    }
+
+    /**
+     * JWT 过滤器 — 从 Authorization Header 解析 JWT，设置 UserContext
+     * Gateway 不在时（开发直连），认证服务靠自己解析 Token
+     */
+    @Bean
+    public OncePerRequestFilter jwtAuthFilter() {
+        return new OncePerRequestFilter() {
+            @Override
+            protected void doFilterInternal(HttpServletRequest request,
+                    HttpServletResponse response, FilterChain filterChain)
+                    throws ServletException, IOException {
+                String header = request.getHeader(HttpHeaders.AUTHORIZATION);
+                if (header != null && header.startsWith("Bearer ")) {
+                    try {
+                        Claims claims = jwtUtil.parseToken(header.substring(7));
+                        UserContext.UserInfo user = new UserContext.UserInfo();
+                        user.setUserId(((Number) claims.get("userId")).longValue());
+                        user.setRole((String) claims.get("role"));
+                        user.setDepartmentId(toLong(claims.get("departmentId")));
+                        UserContext.set(user);
+                    } catch (JwtException e) {
+                        // Token 无效，跳过，Spring Security 后续会拒绝
+                    }
+                }
+                try {
+                    filterChain.doFilter(request, response);
+                } finally {
+                    UserContext.clear();
+                }
+            }
+
+            private Long toLong(Object val) {
+                if (val instanceof Number n) return n.longValue();
+                return null;
+            }
+        };
     }
 
     @Bean
@@ -422,9 +480,6 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder();
     }
 
-    /**
-     * JwtUtil Bean — 从 Nacos 共享配置中读取 JWT 参数
-     */
     @Bean
     public JwtUtil jwtUtil(
             @Value("${costlink.jwt.secret}") String secret,
