@@ -1,0 +1,97 @@
+# 认证服务 (costlink-auth) 实现记录
+
+**日期:** 2026-07-03
+**项目:** CostLink 财务报销与预算管理系统
+
+---
+
+## 一、工作内容
+
+根据 `docs/costlink-auth-dev-guide.md` 设计文档，实现认证服务全部代码，并通过完整验证。
+
+### 1.1 新建文件 (10个)
+
+| 文件 | 路径 | 说明 |
+|------|------|------|
+| User.java | entity/User.java | 用户实体，映射 `costlink_shared.user` 表 |
+| UserMapper.java | mapper/UserMapper.java | MyBatis-Plus 基础 Mapper |
+| LoginRequest.java | dto/LoginRequest.java | 登录请求 DTO（含 @NotBlank 校验） |
+| RefreshRequest.java | dto/RefreshRequest.java | Refresh Token 请求 DTO |
+| LoginResponse.java | dto/LoginResponse.java | 登录响应 DTO（含 @Builder.Default） |
+| AuthService.java | service/AuthService.java | 认证服务接口 |
+| AuthServiceImpl.java | service/impl/AuthServiceImpl.java | 核心逻辑：login → BCrypt校验 → 签发JWT → Redis存RefreshToken |
+| AuthController.java | controller/AuthController.java | 对外接口 `POST /api/auth/login|refresh|logout` |
+| InternalUserController.java | controller/InternalUserController.java | 内部 Feign 接口实现 `GET /internal/users/**` |
+| SecurityConfig.java | config/SecurityConfig.java | Spring Security + JWT 过滤器 |
+
+### 1.2 修改文件 (3个)
+
+| 文件 | 修改内容 |
+|------|----------|
+| pom.xml (costlink-auth) | 添加 `spring-boot-starter-security`、`spring-cloud-starter-bootstrap` 依赖 |
+| AuthApplication.java | 添加 `@MapperScan("com.costlink.auth.mapper")` |
+| pom.xml (根) | maven-compiler-plugin 添加 `<parameters>true</parameters>` |
+
+---
+
+## 二、关键设计决策
+
+### 2.1 JWT 认证流程
+
+```
+登录 → BCrypt验证密码 → 签发AccessToken(30min) + RefreshToken(7天)
+                        → RefreshToken存Redis(key: auth:refresh:{userId})
+                        → 返回 LoginResponse
+
+刷新 → 解析RefreshToken → 校验Redis中匹配 → 重新签发
+登出 → 删除Redis中的RefreshToken
+```
+
+### 2.2 安全配置
+
+- `/api/auth/login`、`/api/auth/refresh` → `permitAll()`
+- `/internal/**` → `permitAll()`
+- 其他请求 → `authenticated()`
+- JWT 过滤器：开发直连时从 `Authorization: Bearer xxx` 解析 Token，设置 UserContext
+
+### 2.3 依赖注入
+
+- 全部使用 `@RequiredArgsConstructor` + `private final`，无 `@Autowired`
+- `JwtUtil` 通过 `@Bean` 方法注入 Nacos 配置值
+
+---
+
+## 三、验证结果 (全部通过)
+
+| # | 测试项 | 期望 | 结果 |
+|---|--------|------|------|
+| 1 | 正确登录 admin/admin123 | 200 + JWT | ✅ |
+| 2 | 错误密码 | 10501 (AUTH_LOGIN_FAILED) | ✅ |
+| 3 | 不存在用户 | 10501 (AUTH_LOGIN_FAILED) | ✅ |
+| 4 | GET /internal/users/1 | 200 + 用户信息 | ✅ |
+| 5 | GET /internal/users/9999 | 10504 (AUTH_USER_NOT_FOUND) | ✅ |
+| 6 | GET /internal/users/by-role?role=ADMIN | 200 + 管理员列表 | ✅ |
+| 7 | GET /internal/users/by-department/0 | 200 + 部门用户列表 | ✅ |
+| 8 | Token 刷新 | 200 + 新 JWT | ✅ |
+| 9 | 返回结果不含 password 字段 | 无密码泄露 | ✅ |
+
+---
+
+## 四、遇到的问题及解决
+
+| 问题 | 原因 | 解决 |
+|------|------|------|
+| 服务启动报 `No spring.config.import` | Spring Cloud 2023 要求显式引入 bootstrap starter 才能从 Nacos 加载配置 | 提升到父 POM 公共依赖中，所有微服务统一继承 |
+| Bean注入歧义 `OncePerRequestFilter` | `@Bean` 注入多个 Filter | 改为 `filterChain(HttpSecurity, JwtUtil)` + 私有工厂方法 `jwtAuthFilter(jwtUtil)` |
+| MySQL `Public Key Retrieval is not allowed` | MySQL 8 caching_sha2_password 插件 | JDBC URL 加 `allowPublicKeyRetrieval=true` |
+| 内部接口500 `Name for argument not specified` | 编译缺 `-parameters` | 父POM compiler插件加 `<parameters>true</parameters>` |
+
+---
+
+## 五、依赖的外部服务
+
+| 服务 | 地址 | 用途 |
+|------|------|------|
+| Nacos | 127.0.0.1:8848 (WSL Docker) | 服务注册 + 配置中心 |
+| MySQL | 127.0.0.1:3306 (Windows) | user 表 |
+| Redis | 127.0.0.1:6379 (Docker bridge, 端口转发) | Refresh Token 存储 |
