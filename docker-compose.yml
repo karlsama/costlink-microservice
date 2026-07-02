@@ -1,19 +1,15 @@
-version: '3.8'
-
 services:
   # ====================================================================
-  # Nacos — 从 Windows 搬到 Docker，连 Windows 上的 MySQL 存配置
+  # Nacos — host 网络模式，直连 Windows MySQL 127.0.0.1
   # ====================================================================
   nacos:
     image: nacos/nacos-server:v2.4.3
     container_name: costlink-nacos
-    ports:
-      - "8848:8848"
-      - "9848:9848"   # gRPC 端口（Nacos 2.x 服务间通信用）
+    network_mode: host
     environment:
       MODE: standalone
       SPRING_DATASOURCE_PLATFORM: mysql
-      MYSQL_SERVICE_HOST: 10.166.141.207
+      MYSQL_SERVICE_HOST: 127.0.0.1
       MYSQL_SERVICE_PORT: "3306"
       MYSQL_SERVICE_DB_NAME: nacos_config
       MYSQL_SERVICE_USER: nacos
@@ -21,13 +17,6 @@ services:
       MYSQL_SERVICE_DB_PARAM: characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     volumes:
       - nacos-logs:/home/nacos/logs
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8848/nacos/v1/console/health/readiness"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    networks:
-      - costlink-net
 
   # ====================================================================
   # Redis
@@ -79,7 +68,7 @@ services:
       REDIS_HOST: redis
     depends_on:
       nacos:
-        condition: service_healthy
+        condition: service_started
       redis:
         condition: service_started
     networks:
@@ -103,7 +92,7 @@ services:
       REDIS_HOST: redis
     depends_on:
       nacos:
-        condition: service_healthy
+        condition: service_started
       redis:
         condition: service_started
     networks:
@@ -130,7 +119,7 @@ services:
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-costlink123}
     depends_on:
       nacos:
-        condition: service_healthy
+        condition: service_started
       redis:
         condition: service_started
       rabbitmq:
@@ -141,7 +130,6 @@ services:
       resources:
         limits:
           memory: 512M
-      replicas: 2
 
   # ====================================================================
   # 预算服务（核心）
@@ -161,7 +149,7 @@ services:
       REDIS_HOST: redis
     depends_on:
       nacos:
-        condition: service_healthy
+        condition: service_started
       redis:
         condition: service_started
     networks:
@@ -192,7 +180,7 @@ services:
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-costlink123}
     depends_on:
       nacos:
-        condition: service_healthy
+        condition: service_started
       redis:
         condition: service_started
       rabbitmq:
@@ -203,7 +191,6 @@ services:
       resources:
         limits:
           memory: 512M
-      replicas: 2
 
   # ====================================================================
   # OCR 服务
@@ -222,13 +209,11 @@ services:
       BAIDU_OCR_SECRET_KEY: ${BAIDU_OCR_SECRET_KEY}
     depends_on:
       nacos:
-        condition: service_healthy
+        condition: service_started
       redis:
         condition: service_started
     networks:
       - costlink-net
-    deploy:
-      replicas: 2
 
   # ====================================================================
   # 通知服务
@@ -250,7 +235,7 @@ services:
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-costlink123}
     depends_on:
       nacos:
-        condition: service_healthy
+        condition: service_started
       rabbitmq:
         condition: service_healthy
     networks:
@@ -273,7 +258,7 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
     depends_on:
       nacos:
-        condition: service_healthy
+        condition: service_started
     networks:
       - costlink-net
 
