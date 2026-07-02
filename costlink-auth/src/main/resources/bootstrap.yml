@@ -1,0 +1,20 @@
+spring:
+  application:
+    name: costlink-auth
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_SERVER_ADDR:127.0.0.1:8848}
+        namespace: ${NACOS_NAMESPACE:}
+      config:
+        server-addr: ${NACOS_SERVER_ADDR:127.0.0.1:8848}
+        namespace: ${NACOS_NAMESPACE:}
+        file-extension: yaml
+        shared-configs:
+          - data-id: costlink-shared-${spring.profiles.active}.yaml
+            group: DEFAULT_GROUP
+            refresh: true
+server:
+  port: 8084
