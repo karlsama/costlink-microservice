@@ -2,6 +2,7 @@ package com.costlink.common.exception;
 
 import com.costlink.common.dto.Result;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.http.HttpStatus;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -13,9 +14,11 @@ import java.util.stream.Collectors;
 
 /**
  * 全局异常拦截器 — 所有服务自动继承此处理逻辑
+ * 仅 Servlet 环境生效（Gateway 为响应式环境，不注册此 bean）
  */
 @Slf4j
 @RestControllerAdvice
+@ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 public class GlobalExceptionHandler {
 
     /**

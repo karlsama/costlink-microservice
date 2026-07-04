@@ -7,6 +7,7 @@ import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.Data;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -35,8 +36,10 @@ public class UserContext {
 
     /**
      * 每个服务在配置类中注册此 Filter
+     * 仅 Servlet 环境生效（Gateway 为响应式环境，不注册此 bean）
      */
     @Component
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
     public static class UserContextFilter implements Filter {
         @Override
         public void doFilter(ServletRequest request, ServletResponse response,

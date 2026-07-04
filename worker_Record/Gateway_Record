@@ -1,0 +1,123 @@
+# Gateway (costlink-gateway) 实现记录
+
+**日期:** 2026-07-03
+**项目:** CostLink 财务报销与预算管理系统
+
+---
+
+## 一、工作内容
+
+根据 `docs/costlink-gateway-dev-guide.md` 设计文档，实现 API 网关服务，并通过完整验证。
+
+### 1.1 新建文件 (2个)
+
+| 文件 | 路径 | 说明 |
+|------|------|------|
+| JwtAuthGatewayFilterFactory.java | filter/JwtAuthGatewayFilterFactory.java | JWT 鉴权过滤器（WebFlux 响应式，AbstractGatewayFilterFactory） |
+| GatewayConfig.java | config/GatewayConfig.java | JwtUtil Bean 注册 + KeyResolver（Redis 限流用） |
+
+### 1.2 修改文件 (2个)
+
+| 文件 | 修改内容 |
+|------|----------|
+| costlink-gateway/pom.xml | 添加 `jakarta.servlet-api` 依赖（UserContextFilter 类加载需要） |
+| costlink-common/exception/GlobalExceptionHandler.java | 加 `@ConditionalOnWebApplication(type = SERVLET)`，避免在响应式环境拦截异常 |
+| costlink-common/dto/UserContext.java | `UserContextFilter` 加 `@ConditionalOnWebApplication(type = SERVLET)` |
+
+### 1.3 父 POM 改动
+
+| 文件 | 修改内容 |
+|------|----------|
+| pom.xml (根) | `spring-cloud-starter-bootstrap` 提升到公共依赖段，所有微服务统一继承 |
+
+---
+
+## 二、关键设计
+
+### 2.1 Gateway 架构
+
+```
+前端请求 → Gateway(:8080) → JwtAuth过滤器 → 路由转发 → 目标微服务
+                │
+                ├─ /api/auth/**        → costlink-auth    (无 JwtAuth)
+                ├─ /api/reimbursements → costlink-*       (JwtAuth=true)
+                ├─ /api/budgets/**     → costlink-budget  (JwtAuth=true)
+                ├─ /api/approvals/**   → costlink-approval(JwtAuth=true)
+                ├─ /api/ocr/**         → costlink-ocr     (JwtAuth=true, 10MB限)
+                ├─ /api/notifications/**→ costlink-notify (JwtAuth=true)
+                └─ /api/reports/**     → costlink-report  (JwtAuth=true)
+```
+
+### 2.2 JWT 鉴权过滤器
+
+- 基于 WebFlux，使用 `AbstractGatewayFilterFactory` + `GatewayFilter`
+- 解析 `Authorization: Bearer xxx` → 提取 claims → 注入 `X-User-Id`、`X-User-Role`、`X-Department-Id` 到下游请求头
+- 无效 Token / 无 Token → 返回 401
+- 路由配置中用 `JwtAuth=true` 激活
+
+### 2.3 路由配置
+
+全部在 Nacos 中 (`costlink-gateway-dev.yaml`)，不在本地文件。包含：
+
+- 7 条业务路由 + 1 条认证路由（无 JwtAuth）
+- 报销服务附加 Redis 限流（100/s 补充，200 突发）
+- OCR 服务附加 10MB 文件大小限制
+- 全局 CORS 配置
+- `/internal/**` 不在路由表 → 外部无法访问
+
+### 2.4 Nacos 配置
+
+| Data ID | 用途 |
+|---------|------|
+| `costlink-gateway-dev.yaml` | 路由表 + 端口 + CORS + Redis + 日志 |
+| costlink-shared-dev.yaml | JWT 密钥 + Redis 地址（共享） |
+
+---
+
+## 三、验证结果 (全部通过)
+
+| # | 测试项 | 期望 | 结果 |
+|---|--------|------|------|
+| 1 | `POST /api/auth/login` 通过 Gateway 转发 | 200 + JWT | ✅ |
+| 2 | 无 Token 访问 `/api/reimbursements` | 401 | ✅ |
+| 3 | 带 Token 访问 `/api/reimbursements`（服务未上线） | 503 | ✅ |
+| 4 | 访问 `/internal/users/1`（不在路由表） | 404 | ✅ |
+
+---
+
+## 四、遇到的问题及解决
+
+### 4.1 `jakarta/servlet/Filter.class` 类加载失败
+
+**现象：** Gateway 启动失败，报 `FileNotFoundException: jakarta/servlet/Filter.class`
+
+**根因：** Gateway 是 WebFlux（响应式）应用，没有 `spring-boot-starter-web` 和 `jakarta.servlet-api`。但 `costlink-common` 中的 `UserContextFilter` 实现了 `jakarta.servlet.Filter`，Gateway 扫描 `com.costlink.common` 时需加载该类。
+
+**解决思路：** 经历了两轮迭代
+1. **第一轮：** 加 `jakarta.servlet-api` 依赖到 Gateway POM — 解决类加载，但治标不治本
+2. **第二轮（最终）：** 在 `UserContextFilter` 上加 `@ConditionalOnWebApplication(type = SERVLET)` — 使其在 Servlet 环境才注册，反应式环境自动跳过。实测 Spring Boot 3.2.7 对静态内部类的条件注解处理正确。
+
+### 4.2 异常状态码 500 覆盖 503/404
+
+**现象：** 带 Token 访问不存在下游 → 500（期望 503）；内部接口 → 500（期望 404）
+
+**根因：** `GlobalExceptionHandler`（来自 common，标注 `@RestControllerAdvice`）的兜底 `@ExceptionHandler(Exception.class)` 拦截了 Gateway 正常抛出的 `NotFoundException`（503）和 `NoResourceFoundException`（404），全部返回 `Result.fail(500)`。
+
+**解决：** 同上，在 `GlobalExceptionHandler` 上加 `@ConditionalOnWebApplication(type = SERVLET)`。去掉后 WebFlux 默认错误处理器自动输出正确的状态码。
+
+### 4.3 之前尝试的失败方案
+
+| 方案 | 为什么不行 |
+|------|-----------|
+| 自定义 `ErrorWebExceptionHandler` | `GlobalExceptionHandler` 的 `@RestControllerAdvice` 优先级更高，拦截了所有异常 |
+| 在 Gateway 的 `@SpringBootApplication` 中排除 | 无法精准排除 common 中的单个类而不影响其他扫描 |
+
+---
+
+## 五、依赖的外部服务
+
+| 服务 | 地址 | 用途 |
+|------|------|------|
+| Nacos | 127.0.0.1:8848 (WSL Docker) | 服务注册 + 路由配置 |
+| Redis | 127.0.0.1:6379 (Docker bridge, 端口转发) | 限流（RequestRateLimiter） |
+| 认证服务 | lb://costlink-auth (:8084) | 登录/Token 签发 |
