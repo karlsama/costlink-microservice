@@ -1,0 +1,84 @@
+# OCR 服务 (costlink-ocr) 实现记录
+
+**日期:** 2026-07-04
+**项目:** CostLink 财务报销与预算管理系统
+
+---
+
+## 一、工作内容
+
+根据 `docs/costlink-ocr-dev-guide.md` 设计文档实现 OCR 服务。无数据库、无 MyBatis-Plus。
+
+### 新建文件
+
+| 类别 | 文件 | 说明 |
+|------|------|------|
+| **Controller** | OcrInternalController.java | 实现 OcrClient 的三个接口（recognize/recognize-async/result） |
+| **Engine** | OcrEngine.java (接口), BaiduOcrEngine.java, PaddleOcrEngine.java, TesseractOcrEngine.java | 策略模式，目前只实现百度引擎 |
+| **Service** | OcrService.java | 缓存查询 + 识别调度 + MQ 发布 |
+| **MQ (2)** | OcrEventPublisher.java, OcrEventConsumer.java | 发布 ocr.completed/failed，消费 reimbursement.submitted |
+| **Config (3)** | OcrConfig.java, BaiduOcrProperties.java, AccessTokenManager.java | RestTemplate, 配置属性, Token 管理 |
+| **DTO** | BaiduOcrResponse.java | 百度 API 响应解析 |
+
+### 关键技术设计
+
+**策略模式引擎切换**
+- `OcrEngine` 接口 → `BaiduOcrEngine`（当前默认）
+- `@ConditionalOnProperty(name = "costlink.ocr.engine")` 切换，未来可无感切到 Paddle/Tesseract
+
+**AccessToken 管理**
+- Redis 缓存 Token，key=`baidu:ocr:access_token`，TTL=29天
+- 定时任务每小时检查，剩余有效期<1天自动刷新
+- 无凭据时返回 null，不抛异常
+
+**缓存策略**
+| Redis Key | 用途 | TTL |
+|-----------|------|-----|
+| `ocr:result:{md5}` | 图片内容缓存 | 24h |
+| `ocr:invoice:{invoiceNumber}` | 发票号去重 | 永久 |
+| `baidu:ocr:access_token` | 百度 Token | 29天 |
+
+---
+
+## 二、验证结果
+
+| # | 测试项 | 结果 | 说明 |
+|---|--------|------|------|
+| 1 | 同步识别 | ✅ 10401 | 凭据未配置，正确返回业务错误码 |
+| 2 | 查询结果（缓存未命中） | ✅ 10401 | 正确 |
+| 3 | 异步识别 | ✅ 200 | 即使凭据缺失+MQ不可用也正常返回 |
+| 4 | 服务启动 + Nacos 注册 | ✅ | 端口 8085 |
+| 5 | AccessToken 定时刷新 | ✅ | 日志显示定时任务运行 |
+
+> ⚠️ 百度 OCR 凭据未配置，实际识别功能需你提供凭据后验证。
+
+---
+
+## 三、遇到的问题及解决
+
+| 问题 | 根因 | 解决 |
+|------|------|------|
+| 异步识别返回 500 | `recognizeAsync` 调 `publishOcrFailed` 时 MQ 不可用 | `OcrEventPublisher` 各方法加 try-catch，MQ 不可用时 log warn 跳过 |
+
+---
+
+## 四、百度凭据准备（后续需要）
+
+```powershell
+$env:BAIDU_OCR_API_KEY="你的API_KEY"
+$env:BAIDU_OCR_SECRET_KEY="你的SECRET_KEY"
+$env:BAIDU_OCR_APP_ID="你的APP_ID"
+cd F:\project_007\costlink-ocr
+mvn spring-boot:run -Dspring-boot.run.profiles=dev
+```
+
+---
+
+## 五、服务依赖
+
+| 服务 | 端口 | 用途 |
+|------|------|------|
+| Nacos | 8848 | 配置 + 注册 |
+| Redis | 6379 | 缓存结果 + AccessToken |
+| RabbitMQ | 5672 | MQ 事件 |
+| 百度 OCR API | 外网 | 发票识别 |
