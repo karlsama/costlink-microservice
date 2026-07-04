@@ -1,0 +1,96 @@
+# 预算服务 (costlink-budget) 实现记录
+
+**日期:** 2026-07-04
+**项目:** CostLink 财务报销与预算管理系统
+
+---
+
+## 一、工作内容
+
+根据 `docs/costlink-budget-dev-guide.md` 设计文档实现预算服务。
+
+### 新建文件
+
+| 类别 | 文件 | 说明 |
+|------|------|------|
+| **Entity (4)** | Budget.java, BudgetLine.java, BudgetChangeLog.java, BudgetAlertConfig.java | 映射 4 张数据库表 |
+| **Mapper (4)** | BudgetMapper, BudgetLineMapper, BudgetChangeLogMapper, BudgetAlertConfigMapper | MyBatis-Plus 基础 Mapper |
+| **Service** | BudgetService.java, BudgetServiceImpl.java, BudgetFreezeServiceImpl.java | CRUD + 冻结/消费/解冻核心 |
+| **Controller (2)** | BudgetController.java, BudgetInternalController.java | 对外接口 + Feign 接口实现 |
+| **MQ** | BudgetEventConsumer.java | 消费 `reimbursement.approved` / `.rejected` |
+| **Config (3)** | BudgetConfig.java, RedissonConfig.java, MyBatisPlusConfig.java | JwtUtil Bean, Redisson 客户端, 分页插件 |
+| **Application** | BudgetApplication.java | @MapperScan |
+
+### 修改文件
+
+| 文件 | 修改内容 |
+|------|----------|
+| bootstrap.yml | （无修改，已有配置正确） |
+| costlink-budget/pom.xml | （无修改，依赖已齐全） |
+
+---
+
+## 二、关键设计
+
+### 2.1 双层并发防护
+
+```
+冻结请求 → Redis 分布式锁（部门级）→ 计算可用余额 → 乐观锁 UPDATE WHERE version=?
+          → 失败抛异常回滚，成功写流水
+```
+
+- **Redis 锁**：防止并发请求同时读取余额（都算出够用，都扣）
+- **乐观锁**：Redis 锁失效时，MySQL 层 `version` 检查拒绝脏写
+
+### 2.2 幂等设计
+
+- 消费操作：查流水表 `change_log WHERE source_id=? AND change_type='CONSUME'`，已存在则跳过
+- 解冻操作：查流水表 `change_log WHERE source_id=? AND change_type='FREEZE'`，无记录则跳过
+
+### 2.3 Feign 接口
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `freeze()` | POST `/internal/budgets/freeze` | 冻结金额（Redis锁+乐观锁） |
+| `consume()` | POST `/internal/budgets/consume` | 消费冻结（审批通过后） |
+| `unfreeze()` | POST `/internal/budgets/unfreeze` | 解冻（驳回/撤回） |
+| `getAvailable()` | GET `/internal/budgets/available` | 查询可用余额 |
+
+---
+
+## 三、验证结果
+
+| # | 测试项 | 期望 | 结果 |
+|---|--------|------|------|
+| 1 | 冻结 2000 | `success=true` | ✅ |
+| 2 | 超额冻结 999999 | `success=false`, "预算不足" | ✅ |
+| 3 | 消费 2000 | frozen→0, used→2000 | ✅ |
+| 4 | 冻结 500 + 解冻 | frozen 回退 | ✅ |
+| 5 | 解冻无冻结记录 | 幂等跳过 | ✅ |
+| 6 | 流水记录（remark 纯描述） | "报销单 #1 冻结 TRAVEL_TRANSPORT" | ✅ |
+
+## 四、待补事项
+
+| 事项 | 原因 | 状态 |
+|------|------|------|
+| MQ 发布者 `budget.frozen` / `budget.exceeded` | 设计文档 4.4 节要求，冻结后通知申请人、阈值预警通知主管。通知服务还没写，暂无订阅方 | ⏳ 待补（不阻塞当前功能） |
+
+---
+
+## 四、遇到的问题及解决
+
+| 问题 | 根因 | 解决 |
+|------|------|------|
+| `NoSuchMethodError: getDepartmentId()` | 旧版 common JAR 缓存，`FreezeRequest` 无此字段 | `mvn install -pl costlink-common` 重新安装 |
+| 消费不扣减预算 | `saveChangeLog` 没存 `remark`（科目），消费按 `remark` 匹配不上 | `saveChangeLog` 增加 `remark` 参数，冻结时写入科目名 |
+
+---
+
+## 五、依赖的外部服务
+
+| 服务 | 地址 | 用途 |
+|------|------|------|
+| Nacos | 127.0.0.1:8848 | 服务注册 + 配置 |
+| MySQL costlink_budget | 127.0.0.1:3306 | 4 张业务表 |
+| Redis | 127.0.0.1:6379 | 分布式锁 |
+| RabbitMQ | 127.0.0.1:5672 | 消费审批事件 |

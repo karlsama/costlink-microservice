@@ -73,7 +73,7 @@ budget_alert_config  — 预警配置（warning_threshold, notify_roles）
 
 ```java
 // POST /internal/budgets/freeze — 报销提交时调
-FreezeRequest { Long reimbursementId; List<FreezeItem> items; }
+FreezeRequest { Long reimbursementId; Long departmentId; List<FreezeItem> items; }
 FreezeItem   { String category; BigDecimal amount; }
 FreezeResponse { Boolean success; BigDecimal availableAfterFreeze; String controlStrategy; String message; }
 
@@ -109,8 +109,21 @@ UnfreezeRequest { Long reimbursementId; }
 ### 5.1 冻结（并发最高，防护最重）
 
 ```java
+@Transactional  // ← 必须：一个 FreezeRequest 内多条 item 全成功或全回滚
 public FreezeResponse freeze(FreezeRequest request) {
-    String lockKey = "budget:lock:" + getDeptId(request);
+    // 1. 找到该部门当前财年的有效预算
+    Budget budget = budgetMapper.selectOne(
+        new LambdaQueryWrapper<Budget>()
+            .eq(Budget::getDepartmentId, request.getDepartmentId())
+            .eq(Budget::getFiscalYear, Year.now().getValue())
+            .eq(Budget::getStatus, "ACTIVE")
+    );
+    if (budget == null) {
+        return FreezeResponse.fail("该部门无有效预算");
+    }
+
+    // 2. 部门级 Redis 锁
+    String lockKey = "budget:lock:" + request.getDepartmentId();
     RLock lock = redissonClient.getLock(lockKey);
 
     try {
@@ -158,7 +171,9 @@ public FreezeResponse freeze(FreezeRequest request) {
 }
 ```
 
-**为什么同时用 Redis 锁和 MySQL 乐观锁**：Redis 锁防并发请求同时算余额（都算出够用，都扣），乐观锁兜底（Redis 锁失效时 MySQL 层拒绝）。两层防护。
+**为什么同时用 Redis 锁和 MySQL 乐观锁**：Redis 锁防并发请求同时算余额（都算出够用，都扣），乐观锁兜底（Redis 锁失效时 MySQL 层拒绝）。
+
+**为什么 freeze 方法需要 @Transactional**：一个报销单可能包含多条费用明细（比如同时报销交通费和住宿费）。如果第一条成功、第二条失败，已冻结的金额必须回滚。`@Transactional` 保证一个请求内的所有冻结操作全成功或全回滚。两层防护。
 
 ### 5.2 解冻（从流水表反查原始冻结记录）
 

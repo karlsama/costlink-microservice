@@ -180,6 +180,7 @@ public class ReimbursementServiceImpl implements ReimbursementService {
                 new LambdaQueryWrapper<ExpenseItem>().eq(ExpenseItem::getReimbursementId, id));
         BudgetClient.FreezeRequest freezeReq = new BudgetClient.FreezeRequest();
         freezeReq.setReimbursementId(id);
+        freezeReq.setDepartmentId(r.getDepartmentId());
         freezeReq.setItems(items.stream().map(item -> {
             BudgetClient.FreezeItem fi = new BudgetClient.FreezeItem();
             fi.setCategory(item.getCategory());

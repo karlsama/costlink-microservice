@@ -43,6 +43,7 @@ public interface BudgetClient {
     @Data
     class FreezeRequest {
         @NotNull private Long reimbursementId;
+        @NotNull private Long departmentId;          // ← 必填，预算服务需要知道哪个部门
         @NotEmpty private List<FreezeItem> items;
     }
 
