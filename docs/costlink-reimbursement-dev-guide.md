@@ -191,18 +191,21 @@ costlink-reimbursement/src/main/java/com/costlink/reimbursement/
 │   └── ReimbursementSubmitSaga.java           ← 提交流程编排（6 步）
 ├── config/
 │   ├── ReimbursementConfig.java               ← JwtUtil Bean + 通用配置
-│   └── MockFeignConfig.java                   ← Mock 模式：假 Feign Bean（@Profile("mock")）
+│   ├── FeignClientConfig.java                  ← @EnableFeignClients（@Profile("!mock")）
+│   └── MockFeignConfig.java                    ← Mock 模式：假 Feign Bean（@Profile("mock")）
 └── machine/
     └── ReimbursementStatusMachine.java        ← 状态机（合法状态转换校验）
 ```
 
-### 8.2 启动类（修改）
+### 8.2 启动类与 Feign 配置（修改）
+
+**ReimbursementApplication.java**：
 
 ```java
 @SpringBootApplication(scanBasePackages = {"com.costlink.reimbursement", "com.costlink.common"})
 @EnableDiscoveryClient
-@EnableFeignClients(basePackages = "com.costlink.common.feign")   // 扫 BudgetClient、ApprovalClient
 @MapperScan("com.costlink.reimbursement.mapper")
+// 注意: @EnableFeignClients 不在此处，见下方独立配置类
 public class ReimbursementApplication {
     public static void main(String[] args) {
         SpringApplication.run(ReimbursementApplication.class, args);
@@ -210,7 +213,17 @@ public class ReimbursementApplication {
 }
 ```
 
-**重要**：`@EnableFeignClients` 不应加在 Application 上，而应放在一个独立的配置类中并标注 `@Profile("!mock")`。这样 mock 模式下 Feign 客户端不创建，避免与 Mock Bean 冲突。参考第 9.1 节的 Mock 配置说明。
+**新建 `config/FeignClientConfig.java`**：
+
+```java
+@Configuration
+@Profile("!mock")   // ← mock 模式下不创建 Feign 客户端，避免与 Mock Bean 冲突
+@EnableFeignClients(basePackages = "com.costlink.common.feign")
+public class FeignClientConfig {
+}
+```
+
+把 `@EnableFeignClients` 从启动类上拆出来单独放，原因：当 `mock` profile 激活时，Feign 客户端不应该创建（Mock Bean 会接管 Spring 容器中的接口实现）。Profile 注解不能加在 `@SpringBootApplication` 上（那会停掉整个服务），只能加在独立的配置类上。
 
 **关于 MetaObjectHandler**：`costlink-common` 已提供 `BaseMetaObjectHandler`（`@ConditionalOnClass`），所有 MyBatis-Plus 服务自动继承 `createTime` 和 `updateTime` 自动填充。**本服务不需要自己写。**
 

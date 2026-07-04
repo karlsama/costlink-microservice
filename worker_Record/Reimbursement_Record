@@ -1,0 +1,145 @@
+# 报销服务 (costlink-reimbursement) 实现记录
+
+**日期:** 2026-07-04
+**项目:** CostLink 财务报销与预算管理系统
+
+---
+
+## 一、工作内容
+
+根据 `docs/costlink-reimbursement-dev-guide.md` 设计文档，实现报销服务全部代码，并通过完整验证。
+
+### 1.1 新建文件
+
+| 文件 | 路径 | 说明 |
+|------|------|------|
+| **Entity (5)** | | |
+| Reimbursement.java | entity/Reimbursement.java | 报销单主表实体 |
+| ExpenseItem.java | entity/ExpenseItem.java | 费用明细行实体 |
+| Attachment.java | entity/Attachment.java | 票据附件实体 |
+| PaymentRecord.java | entity/PaymentRecord.java | 付款记录实体 |
+| OutboxMessage.java | entity/OutboxMessage.java | 本地消息表实体 |
+| **Mapper (5)** | | |
+| ReimbursementMapper.java | mapper/ReimbursementMapper.java | |
+| ExpenseItemMapper.java | mapper/ExpenseItemMapper.java | |
+| AttachmentMapper.java | mapper/AttachmentMapper.java | |
+| PaymentRecordMapper.java | mapper/PaymentRecordMapper.java | |
+| OutboxMessageMapper.java | mapper/OutboxMessageMapper.java | |
+| **DTO (5)** | | |
+| ReimbursementCreateRequest.java | dto/ReimbursementCreateRequest.java | 创建请求 DTO |
+| ReimbursementUpdateRequest.java | dto/ReimbursementUpdateRequest.java | 更新请求 DTO |
+| ReimbursementPageQuery.java | dto/ReimbursementPageQuery.java | 分页查询 DTO |
+| ApprovalCompletedEvent.java | dto/event/ApprovalCompletedEvent.java | 审批完成事件 |
+| OcrCompletedEvent.java + OcrFailedEvent.java | dto/event/ | OCR 事件 |
+| **Service** | | |
+| ReimbursementService.java | service/ReimbursementService.java | 接口 |
+| ReimbursementServiceImpl.java | service/impl/ReimbursementServiceImpl.java | CRUD + Saga 编排 |
+| **Controller** | | |
+| ReimbursementController.java | controller/ReimbursementController.java | 8 个 REST 接口 |
+| **MQ** | | |
+| ReimbursementEventPublisher.java | mq/ReimbursementEventPublisher.java | 事件发布 |
+| ReimbursementEventConsumer.java | mq/ReimbursementEventConsumer.java | 事件消费（审批/OCR） |
+| OutboxScheduledTask.java | mq/OutboxScheduledTask.java | Outbox 定时任务 |
+| **Config** | | |
+| ReimbursementConfig.java | config/ReimbursementConfig.java | JwtUtil Bean |
+| MyBatisPlusConfig.java | config/MyBatisPlusConfig.java | 分页插件 |
+| FeignClientConfig.java | config/FeignClientConfig.java | @EnableFeignClients（@Profile("!mock")） |
+| MockFeignConfig.java | config/MockFeignConfig.java | Mock Feign 客户端 |
+| **Util** | | |
+| ReimbursementStatusMachine.java | util/ReimbursementStatusMachine.java | 状态机（DRAFT→PENDING→APPROVED→PAID） |
+
+### 1.2 修改文件
+
+| 文件 | 修改内容 |
+|------|----------|
+| ReimbursementApplication.java | 添加 `@MapperScan`、`@EnableScheduling`；移除 `@EnableFeignClients`（剥离到 FeignClientConfig） |
+| bootstrap.yml | shared-configs dataId 改为硬编码 `costlink-shared-dev.yaml`（多 profile 兼容） |
+| costlink-common/pom.xml | 添加 `mybatis-plus-spring-boot3-starter`（optional） |
+| ErrorCode.java | 添加 4 个报销错误码（NOT_OWNER、INVALID_AMOUNT、BUDGET_FREEZE_FAILED、APPROVAL_START_FAILED） |
+
+---
+
+## 二、关键设计
+
+### 2.1 提交 Saga（核心流程）
+
+```
+POST /api/reimbursements/{id}/submit
+  │
+  ├─ 1. 校验：status=DRAFT, amount>0, items 非空
+  │
+  ├─ 2. 本地事务：创建 outbox_message (status=PENDING)
+  │
+  ├─ 3. Feign → BudgetClient.freeze()
+  │     ├─ 成功 → 继续
+  │     └─ 失败 → 返回业务异常（预算不足）
+  │
+  ├─ 4. Feign → ApprovalClient.start()
+  │     ├─ 成功 → 继续
+  │     └─ 失败 → 补偿：BudgetClient.unfreeze() → 返回异常
+  │
+  ├─ 5. 本地事务：status=PENDING, approval_instance_id, amount_hash, outbox.status=READY
+  │
+  └─ 6. Outbox 定时任务（5s 间隔）：扫 READY 消息 → 发 RabbitMQ → status=SENT
+```
+
+### 2.2 Mock 模式
+
+通过 `@Profile("mock")` 独立验证：
+
+- `@EnableFeignClients` 移到 `FeignClientConfig`，标注 `@Profile("!mock")`
+- `MockFeignConfig` 标注 `@Profile("mock")`，提供 Mock BudgetClient + ApprovalClient
+- 启动：`mvn spring-boot:run -Dspring-boot.run.profiles=dev,mock`
+
+### 2.3 状态机
+
+```
+DRAFT    ──→ PENDING
+PENDING  ──→ APPROVED / REJECTED / DRAFT（撤回）
+REJECTED ──→ DRAFT（修改重提）
+APPROVED ──→ PAID
+```
+
+### 2.4 金额防篡改哈希
+
+提交时计算 HMAC-SHA256：`id|amount|applicantId|timestamp` → Base64 存入 `amount_hash`
+
+---
+
+## 三、验证结果（全部通过）
+
+| # | 测试项 | 方式 | 结果 |
+|---|--------|------|------|
+| 1 | 创建草稿 | 直连 8081 | ✅ 200 + DRAFT + 雪花ID |
+| 2 | 提交（Mock Saga） | 直连 8081 | ✅ 200 + PENDING + instanceId=999 |
+| 3 | 查询详情 | 直连 8081 | ✅ 200 + 完整数据 |
+| 4 | 分页查询 | 直连 8081 | ✅ 200 + 记录列表 |
+| 5 | 创建草稿 | 通过 Gateway 8080 | ✅ 200 + DRAFT |
+| 6 | 提交（Mock Saga） | 通过 Gateway 8080 | ✅ 200 + PENDING |
+| 7 | 查询详情 | 通过 Gateway 8080 | ✅ 200 |
+| 8 | 删除草稿 | 通过 Gateway 8080 | ✅ 200 |
+
+---
+
+## 四、遇到的问题及解决
+
+| 问题 | 根因 | 解决 |
+|------|------|------|
+| Nacos dataId 无效 | 双 profile `dev,mock` 导致 `${spring.profiles.active}` 解析为 `costlink-shared-dev,mock.yaml` | boostrap.yml 硬编码 `costlink-shared-dev.yaml` |
+| Feign 与 Mock Bean 冲突 | `@EnableFeignClients` 生成的 Feign 代理和 Mock Bean 同时存在 | `@EnableFeignClients` 移到 `FeignClientConfig`，标注 `@Profile("!mock")` |
+| BaseMetaObjectHandler 编译失败 | common 模块无 mybatis-plus 依赖 | common/pom.xml 添加 `mybatis-plus-spring-boot3-starter`（optional） |
+| Column 'create_time' cannot be null | Entity 有 `@TableField(fill = INSERT)` 但无 MetaObjectHandler | 用户创建 `common/config/BaseMetaObjectHandler.java`，全局通用 |
+| JSON 解析 Invalid UTF-8 | Git Bash 中文编码问题 | 测试时用 `--data-binary` 传文件，或用英文数据 |
+
+---
+
+## 五、依赖的外部服务
+
+| 服务 | 地址 | 用途 |
+|------|------|------|
+| Nacos | 127.0.0.1:8848 | 服务注册 + 配置 |
+| MySQL costlink_reimbursement | 127.0.0.1:3306 | 5 张业务表 |
+| Redis | 127.0.0.1:6379 | （预留） |
+| RabbitMQ | 127.0.0.1:5672 | MQ 事件（审批完成/OCR 完成） |
+| Gateway | 127.0.0.1:8080 | 路由 + 鉴权 |
+| 认证服务 | 127.0.0.1:8084 | Token 签发 |

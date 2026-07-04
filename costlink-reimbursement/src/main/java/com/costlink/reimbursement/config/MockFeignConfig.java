@@ -15,6 +15,7 @@ import java.math.BigDecimal;
 public class MockFeignConfig {
 
     @Bean
+    @Primary
     public BudgetClient mockBudgetClient() {
         return new BudgetClient() {
             @Override
@@ -45,6 +46,7 @@ public class MockFeignConfig {
     }
 
     @Bean
+    @Primary
     public ApprovalClient mockApprovalClient() {
         return new ApprovalClient() {
             @Override

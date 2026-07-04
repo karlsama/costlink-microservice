@@ -72,6 +72,13 @@
             <groupId>com.fasterxml.jackson.datatype</groupId>
             <artifactId>jackson-datatype-jsr310</artifactId>
         </dependency>
+
+        <!-- MyBatis-Plus（BaseMetaObjectHandler 自动填充，optional 避免强转给非 MP 服务） -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+            <optional>true</optional>
+        </dependency>
     </dependencies>
 
     <!-- common 模块不需要 spring-boot-maven-plugin，因为它不是可运行的应用 -->
