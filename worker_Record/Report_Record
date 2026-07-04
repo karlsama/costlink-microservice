@@ -1,0 +1,54 @@
+# 报表服务 (costlink-report) 实现记录
+
+**日期:** 2026-07-04
+**项目:** CostLink 财务报销与预算管理系统
+
+---
+
+## 一、工作内容
+
+根据 `docs/costlink-report-dev-guide.md` 设计文档实现报表服务。只读多数据源聚合，无 MQ、无 Feign、无 Redis。
+
+### 新建文件
+
+| 类别 | 文件 | 说明 |
+|------|------|------|
+| **数据源配置 (3)** | ReimbursementDbConfig, BudgetDbConfig, ApprovalDbConfig | 三库只读连接，报销库标 @Primary |
+| **Mapper (3)** | ReimbursementStatMapper, BudgetStatMapper, ApprovalStatMapper | 纯 SELECT，报销 + 预算 + 预留审批 |
+| **DTO (5)** | ReimbursementSummaryVO, BudgetExecutionVO, DepartmentRankingVO, MonthlyTrendVO, PersonalSummaryVO | 报表 VO |
+| **Service** | ReportService + ReportServiceImpl | 跨库聚合 + 类型转换 |
+| **Controller** | ReportController | 5 个 GET 接口 |
+| **Application** | ReportApplication | 排除 DataSourceAutoConfiguration |
+
+### 5 个报表接口
+
+| 接口 | SQL 来源 | 说明 |
+|------|---------|------|
+| `GET /api/reports/reimbursement-summary` | costlink_reimbursement | 按部门+年份汇总 |
+| `GET /api/reports/budget-execution` | costlink_budget | 预算执行率 |
+| `GET /api/reports/department-ranking` | costlink_reimbursement | 部门费用排行 |
+| `GET /api/reports/monthly-trend` | costlink_reimbursement | 月度趋势 |
+| `GET /api/reports/personal-summary` | costlink_reimbursement | 个人报销汇总 |
+
+---
+
+## 二、验证结果
+
+| # | 接口 | 结果 | 数据 |
+|---|------|------|------|
+| 1 | reimbursement-summary | ✅ 200 | totalCount=0（无匹配数据） |
+| 2 | budget-execution | ✅ 200 | 2 条预算线含执行率 |
+| 3 | department-ranking | ✅ 200 | 空列表 |
+| 4 | monthly-trend | ✅ 200 | 空列表 |
+| 5 | personal-summary | ✅ 200 | userId=1, totalCount=5 |
+
+---
+
+## 三、服务依赖
+
+| 服务 | 端口 | 用途 |
+|------|------|------|
+| Nacos | 8848 | 配置 + 注册 |
+| MySQL costlink_reimbursement | 3306 | 报销数据（只读） |
+| MySQL costlink_budget | 3306 | 预算数据（只读） |
+| MySQL costlink_approval | 3306 | 审批数据（预留，只读） |

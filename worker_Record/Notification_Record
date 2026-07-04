@@ -1,0 +1,62 @@
+# 通知服务 (costlink-notification) 实现记录
+
+**日期:** 2026-07-04
+**项目:** CostLink 财务报销与预算管理系统
+
+---
+
+## 一、工作内容
+
+根据 `docs/costlink-notification-dev-guide.md` 设计文档实现通知服务。纯 MQ 消费者，无 Controller、无 Feign。
+
+### 新建文件
+
+| 类别 | 文件 | 说明 |
+|------|------|------|
+| **Entity (2)** | Message.java, MessageTemplate.java | 通知消息 + 消息模板 |
+| **Mapper (2)** | MessageMapper, MessageTemplateMapper | MyBatis-Plus |
+| **Service** | NotificationService (接口), NotificationServiceImpl | 查模板 → 替换占位符 → 写 message 表 |
+| **MQ (2)** | ApprovalEventConsumer, BudgetEventConsumer | 消费审批 + 预算事件 |
+| **Config (2)** | NotificationConfig, MyBatisPlusConfig | JwtUtil Bean, 分页插件 |
+
+### 订阅的事件
+
+| 事件 | 队列 | 模板 | 动作 |
+|------|------|------|------|
+| `approval.node.completed` | q.approval.node.completed | APPROVAL_NOTIFY | 通知下一审批人 |
+| `approval.completed` (APPROVED) | q.approval.completed | APPROVAL_APPROVED | 通知申请人通过 |
+| `approval.completed` (REJECTED) | q.approval.completed | APPROVAL_REJECTED | 通知申请人驳回 |
+| `budget.exceeded` | q.budget.exceeded | BUDGET_WARNING | 通知主管预算不足 |
+| `budget.frozen` | q.budget.frozen | BUDGET_WARNING | 通知申请人预算已冻结 |
+
+---
+
+## 二、验证结果
+
+| # | 测试项 | 结果 |
+|---|--------|------|
+| 1 | 服务启动 | ✅ 8086 |
+| 2 | MQ 不可用时不崩溃 | ✅ RabbitMQ 未运行，服务正常启动 |
+| 3 | 5 个消费者全部注册 | ✅ 日志显示监听器已绑定 |
+
+> 完整验证需要 RabbitMQ 运行后手动发消息确认模板渲染和写入。
+
+---
+
+## 三、设计要点
+
+**模板渲染**：占位符 `{title}`、`{amount}`、`{reason}` 等通过 `String.replace()` 替换为实际值。消息写入 `message` 表后 `send_status=PENDING`，开发阶段只写不推。
+
+**健壮性**：所有消费者外层 try-catch，字段不完整时 log.warn 跳过，不炸服务。
+
+**无需 Mock**：通知服务只消费 MQ 事件，不调 Feign/RPC，没有 Mock 需求。
+
+---
+
+## 四、服务依赖
+
+| 服务 | 端口 | 用途 |
+|------|------|------|
+| Nacos | 8848 | 配置 + 注册 |
+| MySQL costlink_notification | 3306 | 2 张表 |
+| RabbitMQ | 5672 | 消费审批/预算事件 |

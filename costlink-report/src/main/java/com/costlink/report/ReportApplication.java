@@ -2,9 +2,13 @@ package com.costlink.report;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
 import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 
-@SpringBootApplication(scanBasePackages = {"com.costlink.report", "com.costlink.common"})
+@SpringBootApplication(
+    scanBasePackages = {"com.costlink.report", "com.costlink.common"},
+    exclude = { DataSourceAutoConfiguration.class }
+)
 @EnableDiscoveryClient
 public class ReportApplication {
     public static void main(String[] args) {

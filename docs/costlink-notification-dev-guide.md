@@ -47,15 +47,28 @@
 
 ```java
 @RabbitListener(queues = MqConstants.QUEUE_APPROVAL_NODE_COMPLETED)
-public void onNodeCompleted(/* JSON as Map */) {
-    // 1. 解析事件 → 拿到 nextApproverId、reimbursementId、title
-    // 2. 查模板 APPROVAL_NOTIFY
-    // 3. 替换占位符 → 生成 title 和 content
-    // 4. INSERT INTO message (user_id=nextApproverId, title, content, message_type, channel, related_id)
+public void onNodeCompleted(ApprovalNodeCompletedEvent event) {
+    // event.getNextApproverId() → 收件人
+    // event.getTitle() → 渲染模板
+    // event.getAmount() → 渲染模板
+    // 查模板 APPROVAL_NOTIFY → replace → INSERT message
+}
+
+@RabbitListener(queues = MqConstants.QUEUE_APPROVAL_COMPLETED)
+public void onApprovalCompleted(ApprovalCompletedEvent event) {
+    // event.getAction() → APPROVED 用 APPROVAL_APPROVED 模板，REJECTED 用 APPROVAL_REJECTED
+    // event.getApplicantId() → 收件人
+    // event.getTitle() / event.getAmount() → 渲染
+}
+
+@RabbitListener(queues = MqConstants.QUEUE_BUDGET_EXCEEDED)
+public void onBudgetExceeded(BudgetExceededEvent event) {
+    // event.getNotifyUserIds() → 收件人列表（预算服务已翻译好）
+    // event.getDepartmentName() / event.getCategory() / event.getUsedRate() → 渲染
 }
 ```
 
-四个消费者的逻辑几乎一样：解析事件 → 查模板 → 替换占位符 → INSERT。
+**事件类都在 common 中**：`ApprovalNodeCompletedEvent`、`ApprovalCompletedEvent`、`BudgetFrozenEvent`、`BudgetExceededEvent`——直接 import 使用，字段名已定，不需要自己解析 JSON。
 
 ## 5. 开发阶段只开启站内信通道
 

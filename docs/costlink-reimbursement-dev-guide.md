@@ -340,7 +340,7 @@ public void onApprovalCompleted(ApprovalCompletedEvent event) {
 }
 ```
 
-注意：`ApprovalCompletedEvent` 已在 `common/mq/event/ApprovalCompletedEvent.java` 中定义，审批服务和报销服务共用同一个类。不要各自定义。
+注意：`ApprovalCompletedEvent` 已在 `common/mq/event/ApprovalCompletedEvent.java` 中定义，含 `reimbursementId`、`instanceId`、`action`、`title`、`amount`、`applicantId`。审批服务发布前需填充全部字段。
 
 **OCR 完成事件处理**：
 
