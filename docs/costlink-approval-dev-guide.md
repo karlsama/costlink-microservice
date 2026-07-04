@@ -163,10 +163,17 @@ start(StartRequest req)
   │
   ├─ 3. 对每个 approver：
   │     ├─ 调 AuthClient.getUsersByRole(role, departmentId) → 拿到具体人员列表
+  │     ├─ 如果列表为空 → 该角色无人员配置，节点标 FAILED，整个 start 返回错误
   │     ├─ 如果审批人 == 申请人且 autoSkipSelf=true → 跳过（标记 SKIPPED）
   │     └─ 生成 approval_node 记录
   │
-  ├─ 4. 创建 approval_instance（存 reimbursementId + 节点总数 + 当前节点序号=1）
+  ├─ 4. 所有节点创建完后 → 找到第一个状态=PENDING 的节点
+  │     ├─ 有 PENDING 节点 → current_node_order = 该节点序号
+  │     └─ 无 PENDING 节点（全部 SKIPPED）→ 实例直接 APPROVED
+  │                                    立即发 approval.completed(action=APPROVED)
+  │                                    current_node_order = 0（无待审批节点）
+  │
+  ├─ 5. 创建 approval_instance
   │
   ├─ 5. 发布 approval.node.completed → 通知第一个审批人
   │
@@ -232,8 +239,10 @@ costlink-approval/src/main/java/com/costlink/approval/
 ├── config/
 │   ├── ApprovalConfig.java                 ← JwtUtil Bean
 │   └── FeignClientConfig.java              ← @EnableFeignClients(@Profile("!mock"))
-└── dto/
-    └── ApprovalCompletedEvent.java         ← 事件 payload（含 action 字段）
+│   └── MockAuthFeignConfig.java            ← Mock 模式：假 AuthClient（可选）
+```
+
+注意：`ApprovalCompletedEvent` 已放在 `common/mq/event/ApprovalCompletedEvent.java`，审批服务和报销服务共用同一个类，不需要各自定义。
 ```
 
 ---

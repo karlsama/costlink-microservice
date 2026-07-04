@@ -180,7 +180,7 @@ costlink-reimbursement/src/main/java/com/costlink/reimbursement/
 │   └── OutboxMessage.java
 ├── dto/
 │   ├── event/
-│   │   └── ApprovalCompletedEvent.java        ← MQ 消费者用的事件类
+│   │   └── (事件类已移至 common/mq/event/，此处不再定义)
 │   ├── request/
 │   │   └── ReimbursementCreateRequest.java    ← 创建报销请求 DTO
 │   └── response/
@@ -273,7 +273,7 @@ public void onApprovalCompleted(ApprovalCompletedEvent event) {
 }
 ```
 
-注意：`ApprovalCompletedEvent` 的 `action` 字段是审批服务发出的，必须是 `APPROVED` 或 `REJECTED`。这个事件类不在 common 中——你在报销服务的 `dto/event/` 下自己定义。
+注意：`ApprovalCompletedEvent` 已在 `common/mq/event/ApprovalCompletedEvent.java` 中定义，审批服务和报销服务共用同一个类。不要各自定义。
 
 **OCR 完成事件处理**：
 

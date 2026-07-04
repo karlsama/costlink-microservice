@@ -13,7 +13,7 @@ spring:
         namespace: ${NACOS_NAMESPACE:}
         file-extension: yaml
         shared-configs:
-          - data-id: costlink-shared-${spring.profiles.active}.yaml
+          - data-id: costlink-shared-dev.yaml
             group: DEFAULT_GROUP
             refresh: true
 server:

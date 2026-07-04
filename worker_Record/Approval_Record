@@ -1,0 +1,68 @@
+# 审批服务 (costlink-approval) 实现记录
+
+**日期:** 2026-07-04
+**项目:** CostLink 财务报销与预算管理系统
+
+---
+
+## 一、工作内容
+
+根据 `docs/costlink-approval-dev-guide.md` 设计文档实现审批服务。
+
+### 新建文件
+
+| 类别 | 文件 | 说明 |
+|------|------|------|
+| **Entity (4)** | ApprovalTemplate, ApprovalInstance, ApprovalNode, ApprovalRecord | 4 张审批表 |
+| **Mapper (4)** | 对应 4 个 Entity | MyBatis-Plus |
+| **Service** | ApprovalService (接口), ApprovalServiceImpl, ApprovalChainEngine | 审批操作 + 链引擎 |
+| **Controller (2)** | ApprovalController, ApprovalInternalController | 对外 + Feign 接口 |
+| **MQ** | ApprovalEventPublisher (接口), RabbitApprovalEventPublisher, MockApprovalEventPublisher | 事件发布 + Mock |
+| **Config (4)** | ApprovalConfig, FeignClientConfig, MockAuthFeignConfig, MyBatisPlusConfig | JwtUtil, Feign, Mock, 分页 |
+
+### 关键技术设计
+
+**审批链引擎 (`ApprovalChainEngine`)**
+- 加载默认模板 (id=1)，解析 JSON rules
+- 按金额区间匹配规则：`<1000→1级, 1000~5000→2级, >5000→3级`
+- 通过 `AuthClient.getUsersByRole()` 将角色转为具体审批人
+- 自动跳过申请人本人的节点 (autoSkipSelf)
+
+**MQ 双实现模式**
+- `ApprovalEventPublisher` 接口：定义 `publishNodeCompleted` / `publishApprovalCompleted`
+- `RabbitApprovalEventPublisher`：`@Profile("!mock")`，真实 MQ 发布，不可用时事务回滚
+- `MockApprovalEventPublisher`：`@Profile("mock")`，只打日志不连 MQ，开发无依赖
+
+---
+
+## 二、验证结果
+
+| # | 测试项 | 期望 | 结果 |
+|---|--------|------|------|
+| 1 | start(500) → priority=1 DEPARTMENT_HEAD | 200 + 1 节点 | ✅ |
+| 2 | start(3000) → priority=2 两级审批 | 200 + 2 节点 | ✅ |
+| 3 | 审批通过 → 终局 | 200 | ✅ |
+| 4 | 审批驳回 → 终局 | 200 | ✅ |
+| 5 | 待办查询 | 200 + 列表 | ✅ |
+| 6 | 实例详情 | 200 | ✅ |
+| 7 | Mock MQ 事件日志 | `[Mock] 发布审批完成事件` | ✅ |
+
+---
+
+## 三、遇到的问题及解决
+
+| 问题 | 根因 | 解决 |
+|------|------|------|
+| `Field 'template_id' doesn't have a default value` | 创建实例时未设 `templateId` | start() 中设置 `inst.setTemplateId(1L)` |
+| `Connection refused` (RabbitMQ) | MQ 未启动，`eventPublisher` 调 `RabbitTemplate` 抛异常 | 提取 `ApprovalEventPublisher` 接口，Profile 模式分离：`RabbitApprovalEventPublisher` + `MockApprovalEventPublisher` |
+
+---
+
+## 四、服务依赖
+
+| 服务 | 端口 | 用途 |
+|------|------|------|
+| Nacos | 8848 | 配置 + 注册 |
+| MySQL costlink_approval | 3306 | 4 张表 |
+| 认证服务 | 8084 | 查审批人角色 (Mock 可绕过) |
+| RabbitMQ | 5672 | 发布审批事件 (Mock 可绕过) |
