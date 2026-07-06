@@ -26,7 +26,14 @@ function onRefreshed(newToken) {
 }
 
 request.interceptors.response.use(
-  response => response.data,
+  response => {
+    const body = response.data
+    // 自动解包 Result 对象，直接返回 body.data
+    if (body && typeof body.code === 'number') {
+      return body.data
+    }
+    return body
+  },
   async error => {
     const originalRequest = error.config
 

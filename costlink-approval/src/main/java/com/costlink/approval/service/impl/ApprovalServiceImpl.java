@@ -287,6 +287,43 @@ public class ApprovalServiceImpl implements ApprovalService {
         return Result.ok(inst);
     }
 
+    @Override
+    public Result<ApprovalClient.InstanceResponse> getInstance(Long instanceId) {
+        ApprovalInstance inst = instanceMapper.selectById(instanceId);
+        if (inst == null) {
+            throw new BusinessException(ErrorCode.APPROVAL_NOT_FOUND);
+        }
+        return Result.ok(toInstanceResponse(inst));
+    }
+
+    @Override
+    public Result<java.util.List<ApprovalClient.PendingItem>> getPendingList(Long approverId) {
+        List<ApprovalNode> nodes = nodeMapper.selectList(
+                new LambdaQueryWrapper<ApprovalNode>()
+                        .eq(ApprovalNode::getApproverId, approverId)
+                        .eq(ApprovalNode::getStatus, "PENDING"));
+        List<ApprovalClient.PendingItem> items = nodes.stream().map(n -> {
+            ApprovalInstance inst = instanceMapper.selectById(n.getInstanceId());
+            if (inst == null) return null;
+            ApprovalClient.PendingItem item = new ApprovalClient.PendingItem();
+            item.setInstanceId(n.getInstanceId());
+            item.setReimbursementId(inst.getReimbursementId());
+            item.setAmount(inst.getTotalAmount());
+            return item;
+        }).filter(java.util.Objects::nonNull).toList();
+        return Result.ok(items);
+    }
+
+    private ApprovalClient.InstanceResponse toInstanceResponse(ApprovalInstance inst) {
+        ApprovalClient.InstanceResponse resp = new ApprovalClient.InstanceResponse();
+        resp.setInstanceId(inst.getId());
+        resp.setReimbursementId(inst.getReimbursementId());
+        resp.setStatus(inst.getStatus());
+        resp.setCurrentNodeOrder(inst.getCurrentNodeOrder());
+        resp.setTotalNodes(inst.getTotalNodes());
+        return resp;
+    }
+
     private boolean isLastNode(ApprovalInstance inst, ApprovalNode currentNode) {
         List<ApprovalNode> allNodes = nodeMapper.selectList(
                 new LambdaQueryWrapper<ApprovalNode>()

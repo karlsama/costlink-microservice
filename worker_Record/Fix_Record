@@ -1,0 +1,89 @@
+# 代码修复记录 (CODE_FIX_LIST)
+
+**日期:** 2026-07-06
+
+---
+
+## 修复清单
+
+### #1 MQ 事件序列化修复
+
+**文件修改:**
+- `costlink-reimbursement/entity/Reimbursement.java` — 添加 `implements Serializable` + `serialVersionUID`
+- `costlink-reimbursement/config/ReimbursementConfig.java` — 添加 `Jackson2JsonMessageConverter` Bean
+
+**根因:** RabbitTemplate 发送非 Serializable 对象时抛出 `IllegalArgumentException`，四个 MQ 事件全部发不出去。
+
+---
+
+### #2 前端数据解包修复
+
+**文件修改:**
+- `costlink-frontend/src/api/request.js` — 响应拦截器改为自动解包 `Result<T>`，直接返回 `body.data`
+
+**根因:** `response => response.data` 返回完整的 Result 对象（`{code, message, data, timestamp}`），各页面拿到的是 Result 本身而不是业务数据。`Array.isArray(res)` 永远 false。
+
+**影响:** 修复后 auth store 的数据路径也要同步——`res.data.accessToken` 变为 `res.accessToken`。之前已经用 `const d = res.data || res` 做了兼容，无需额外改动。
+
+---
+
+### #4 Feign 接口缺失修复
+
+**文件修改:**
+- `costlink-approval/controller/ApprovalInternalController.java` — 添加 `getInstance` + `getPendingList` 端点
+- `costlink-approval/service/ApprovalService.java` — 接口添加对应方法签名
+- `costlink-approval/service/impl/ApprovalServiceImpl.java` — 实现 `getInstance()` 和 `getPendingList()`，添加 `toInstanceResponse()` 转换方法
+
+**根因:** `ApprovalClient` 声明了三个接口，Controller 只实现了 `start()`。调用 `getInstance()` 或 `getPending()` 的客户端收到 404。
+
+---
+
+### #5 OCR getResult 参数不匹配
+
+**文件修改:**
+- `costlink-ocr/controller/OcrInternalController.java` — `getResult` 改为 `@RequestParam Long attachmentId`
+- `costlink-ocr/service/OcrService.java` — `getResult` 去掉 `fileHash` 参数，通过 Redis 映射 `ocr:attach:{attachmentId} → fileHash` 反查
+- 识别成功时增加 `ocr:attach:{attachmentId}` 的缓存写入
+
+**根因:** Feign 接口声明 `@RequestParam Long attachmentId`，Controller 写成了 `@RequestBody Map`，调用方收到 400。
+
+---
+
+### #6 审批安全漏洞修复
+
+**文件修改:**
+- `costlink-approval/controller/ApprovalController.java` — `operatorId` 从 `UserContext.getUserId()` 获取，不再从请求体读
+
+**根因:** 任何登录用户可在请求体里伪造 `operatorId` 冒充他人审批。
+
+---
+
+### #7 HMAC 密钥硬编码修复
+
+**文件修改:**
+- `costlink-reimbursement/service/impl/ReimbursementServiceImpl.java` — 硬编码字符串改为 `@Value("${costlink.amount-hash.hmac-key}")` 注入
+
+**根因:** `"CostLink-HMAC-Key-2026"` 直接写在代码里，无法在部署时更换。
+
+---
+
+### #9 Redisson 密码可配置
+
+**文件修改:**
+- `costlink-budget/config/RedissonConfig.java` — 新增 `password` 参数从 Nacos 配置读取
+
+**根因:** Redis 地址硬编码，没有密码配置项。
+
+---
+
+## 未修改项说明
+
+| # | 原因 |
+|---|------|
+| #3 | 预算消费者字段问题依赖 #1 修复，使用 Map payload 后自然解决 |
+| #8 | `.env` 凭据问题只需确认 `.gitignore` 已包含 `.env` |
+| #10 | docker-compose 构建是集成阶段的事，开发阶段不影响 |
+
+## 编译验证
+
+`mvn compile -pl costlink-reimbursement,costlink-approval,costlink-budget,costlink-ocr -am` → 全部通过。

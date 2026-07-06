@@ -57,10 +57,8 @@ public class OcrInternalController {
 
     /** 查询识别结果 */
     @PostMapping("/result")
-    public Result<OcrClient.OcrResultDTO> getResult(@RequestBody Map<String, Object> body) {
-        Long attachmentId = Long.valueOf(body.get("attachmentId").toString());
-        String fileHash = (String) body.get("fileHash");
-        OcrClient.OcrResultDTO result = ocrService.getResult(attachmentId, fileHash);
+    public Result<OcrClient.OcrResultDTO> getResult(@RequestParam Long attachmentId) {
+        OcrClient.OcrResultDTO result = ocrService.getResult(attachmentId);
         if (result == null) {
             return Result.fail(10401, "识别结果不存在");
         }

@@ -7,8 +7,8 @@
 
 ## 前置条件
 
-```powershell
-# 1. MySQL 管理员 PowerShell
+```cmd
+REM 1. MySQL 管理员 CMD（不是 PowerShell）
 cd "C:\Program Files\MySQL\MySQL Server 8.4\bin"
 .\mysqld --defaults-file="C:\ProgramData\MySQL\my.ini" --console
 ```
@@ -18,33 +18,57 @@ cd "C:\Program Files\MySQL\MySQL Server 8.4\bin"
 cd /mnt/f/project_007
 docker compose up nacos redis rabbitmq -d
 
-# 3. 验证
-docker compose ps nacos | grep Up    # 应看到 Up
+# 验证
 docker compose logs nacos | grep "started successfully" | tail -1
 ```
 
-```powershell
-# 4. PowerShell — 百度凭据 (OCR 验证需要)
-$env:BAIDU_OCR_API_KEY="7rkfAoOJffUKw2aLmjgIYFJo"
-$env:BAIDU_OCR_SECRET_KEY="QRt53HFQSrkajHDsWjDE8YWw8ffTILon"
-$env:BAIDU_OCR_APP_ID="123874271"
+```cmd
+REM 3. CMD 终端 — 按需启动后端服务（测哪个起哪个，不用全开）
+
+REM ---- 认证服务 (8084) ----
+cd /d F:\project_007\costlink-auth
+mvn spring-boot:run "-Dspring-boot.run.profiles=dev"
+
+REM ---- Gateway (8080) ----
+cd /d F:\project_007\costlink-gateway
+mvn spring-boot:run "-Dspring-boot.run.profiles=dev"
+
+REM ---- 报销服务 Mock (8081) ----
+cd /d F:\project_007\costlink-reimbursement
+mvn spring-boot:run "-Dspring-boot.run.profiles=dev,mock"
+
+REM ---- 预算服务 (8082) ----
+cd /d F:\project_007\costlink-budget
+mvn spring-boot:run "-Dspring-boot.run.profiles=dev"
+
+REM ---- 审批服务 Mock (8083) ----
+cd /d F:\project_007\costlink-approval
+mvn spring-boot:run "-Dspring-boot.run.profiles=dev,mock"
+
+REM ---- OCR 服务 (8085) —— 先设凭据 ----
+set BAIDU_OCR_API_KEY=7rkfAoOJffUKw2aLmjgIYFJo
+set BAIDU_OCR_SECRET_KEY=QRt53HFQSrkajHDsWjDE8YWw8ffTILon
+set BAIDU_OCR_APP_ID=123874271
+cd /d F:\project_007\costlink-ocr
+mvn spring-boot:run "-Dspring-boot.run.profiles=dev"
+
+REM ---- 通知服务 (8086) ----
+cd /d F:\project_007\costlink-notification
+mvn spring-boot:run "-Dspring-boot.run.profiles=dev"
+
+REM ---- 报表服务 (8087) ----
+cd /d F:\project_007\costlink-report
+mvn spring-boot:run "-Dspring-boot.run.profiles=dev"
 ```
 
-```powershell
-# 5. 按需启动后端服务 (每开一个新 PowerShell 窗口)
-cd F:\project_007\costlink-auth          && mvn spring-boot:run -Dspring-boot.run.profiles=dev
-cd F:\project_007\costlink-gateway       && mvn spring-boot:run -Dspring-boot.run.profiles=dev
-cd F:\project_007\costlink-reimbursement && mvn spring-boot:run -Dspring-boot.run.profiles=dev,mock
-cd F:\project_007\costlink-budget        && mvn spring-boot:run -Dspring-boot.run.profiles=dev
-cd F:\project_007\costlink-approval      && mvn spring-boot:run -Dspring-boot.run.profiles=dev,mock
-cd F:\project_007\costlink-ocr           && mvn spring-boot:run -Dspring-boot.run.profiles=dev
-cd F:\project_007\costlink-notification  && mvn spring-boot:run -Dspring-boot.run.profiles=dev
-cd F:\project_007\costlink-report        && mvn spring-boot:run -Dspring-boot.run.profiles=dev
-```
+**每个服务开一个独立的 CMD 窗口。** 不用全开——测报销时只开 Auth + Gateway + Reimbursement 就行。测预算只开 Budget 就行（直连 :8082）。
 
 ```bash
-# 6. 确认所有服务在线
+# 4. 确认所有启动的服务已注册到 Nacos
 curl -s http://127.0.0.1:8848/nacos/v1/ns/service/list?pageNo=1&pageSize=20 | python3 -c "import sys,json;[print(s['serviceName']) for s in json.load(sys.stdin)['doms']]" 2>/dev/null
+
+# 或者直接打开 Nacos 控制台 → 服务管理 → 服务列表
+# http://127.0.0.1:8848/nacos
 ```
 
 ---

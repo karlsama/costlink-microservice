@@ -1,4 +1,4 @@
-package com.costlink.notification.service;
+package com.costlink.notification.service.impl;
 
 import com.costlink.notification.entity.Message;
 import com.costlink.notification.entity.MessageTemplate;

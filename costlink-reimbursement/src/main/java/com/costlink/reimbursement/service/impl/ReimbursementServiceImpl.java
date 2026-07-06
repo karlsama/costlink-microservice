@@ -24,6 +24,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.crypto.Mac;
@@ -46,6 +47,9 @@ public class ReimbursementServiceImpl implements ReimbursementService {
     private final BudgetClient budgetClient;
     private final ApprovalClient approvalClient;
     private final ObjectMapper objectMapper;
+
+    @Value("${costlink.amount-hash.hmac-key:CostLink-HMAC-Key-2026}")
+    private String hmacKey;
 
     @Override
     @Transactional
@@ -309,7 +313,7 @@ public class ReimbursementServiceImpl implements ReimbursementService {
             String data = r.getId() + "|" + r.getTotalAmount().toPlainString()
                     + "|" + r.getApplicantId() + "|" + LocalDateTime.now();
             Mac mac = Mac.getInstance("HmacSHA256");
-            mac.init(new SecretKeySpec("CostLink-HMAC-Key-2026".getBytes(), "HmacSHA256"));
+            mac.init(new SecretKeySpec(hmacKey.getBytes(), "HmacSHA256"));
             return Base64.getEncoder().encodeToString(mac.doFinal(data.getBytes()));
         } catch (Exception e) {
             log.warn("生成金额哈希失败", e);

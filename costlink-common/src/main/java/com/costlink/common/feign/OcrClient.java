@@ -33,7 +33,7 @@ public interface OcrClient {
     class RecognizeRequest {
         private Long attachmentId;
         private Long reimbursementId;
-        private String base64Image;    // 图片 Base64 编码（OCR 服务直接用，不靠文件路径）
+        private String fileUrl;        // 图片 data URI (data:image/jpeg;base64,...) 或纯 Base64 字符串
         private String fileHash;       // MD5，用于缓存去重
     }
 

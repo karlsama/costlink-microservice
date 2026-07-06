@@ -33,7 +33,7 @@ public class BudgetEventConsumer {
         try {
             @SuppressWarnings("unchecked")
             Map<String, Object> body = objectMapper.readValue(message, Map.class);
-            Long reimbursementId = Long.valueOf(body.get("reimbursementId").toString());
+            Long reimbursementId = Long.valueOf(body.get("id").toString());
 
             // 幂等检查
             Long count = budgetFreezeService.checkConsumeExists(reimbursementId);
@@ -70,7 +70,7 @@ public class BudgetEventConsumer {
         try {
             @SuppressWarnings("unchecked")
             Map<String, Object> body = objectMapper.readValue(message, Map.class);
-            Long reimbursementId = Long.valueOf(body.get("reimbursementId").toString());
+            Long reimbursementId = Long.valueOf(body.get("id").toString());
 
             BudgetClient.UnfreezeRequest req = new BudgetClient.UnfreezeRequest();
             req.setReimbursementId(reimbursementId);

@@ -8,6 +8,8 @@ import com.costlink.common.feign.ApprovalClient;
 public interface ApprovalService {
     // 内部 Feign 接口
     Result<ApprovalClient.StartResponse> start(ApprovalClient.StartRequest request);
+    Result<ApprovalClient.InstanceResponse> getInstance(Long instanceId);
+    Result<java.util.List<ApprovalClient.PendingItem>> getPendingList(Long approverId);
 
     // 对外接口
     Result<?> approve(Long instanceId, Long operatorId, String comment);

@@ -1,6 +1,8 @@
 package com.costlink.reimbursement.config;
 
 import com.costlink.common.util.JwtUtil;
+import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
+import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -14,5 +16,10 @@ public class ReimbursementConfig {
             @Value("${costlink.jwt.access-token-ttl:30}") long accessTokenTtl,
             @Value("${costlink.jwt.refresh-token-ttl:7}") long refreshTokenTtl) {
         return new JwtUtil(secret, accessTokenTtl, refreshTokenTtl);
+    }
+
+    @Bean
+    public MessageConverter messageConverter() {
+        return new Jackson2JsonMessageConverter();
     }
 }

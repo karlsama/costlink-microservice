@@ -14,6 +14,7 @@ public class RedissonConfig {
     public RedissonClient redissonClient(
             @Value("${redisson.single-server-config.address:redis://127.0.0.1:6379}") String address,
             @Value("${redisson.single-server-config.database:1}") int database,
+            @Value("${redisson.single-server-config.password:}") String password,
             @Value("${redisson.single-server-config.connection-pool-size:16}") int poolSize,
             @Value("${redisson.single-server-config.connection-minimum-idle-size:8}") int minIdle) {
         Config config = new Config();
@@ -22,6 +23,9 @@ public class RedissonConfig {
                 .setDatabase(database)
                 .setConnectionPoolSize(poolSize)
                 .setConnectionMinimumIdleSize(minIdle);
+        if (password != null && !password.isEmpty()) {
+            config.useSingleServer().setPassword(password);
+        }
         return Redisson.create(config);
     }
 }

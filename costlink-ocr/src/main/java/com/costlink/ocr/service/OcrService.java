@@ -42,6 +42,8 @@ public class OcrService {
         if ("SUCCESS".equals(result.getStatus()) && fileHash != null) {
             redisTemplate.opsForValue().set(
                     "ocr:result:" + fileHash, toJson(result), 24, TimeUnit.HOURS);
+            redisTemplate.opsForValue().set(
+                    "ocr:attach:" + attachmentId, fileHash, 24, TimeUnit.HOURS);
 
             if (result.getInvoiceNumber() != null) {
                 redisTemplate.opsForValue().set(
@@ -67,9 +69,11 @@ public class OcrService {
         }
     }
 
-    /** 查询缓存结果 */
-    public OcrClient.OcrResultDTO getResult(Long attachmentId, String fileHash) {
-        if (fileHash == null) return null;
+    /** 查询缓存结果（Feign 接口：通过 attachmentId 查询） */
+    public OcrClient.OcrResultDTO getResult(Long attachmentId) {
+        // 从 Redis 查 attachmentId → fileHash 的映射
+        String fileHash = redisTemplate.opsForValue().get("ocr:attach:" + attachmentId);
+        if (fileHash == null || fileHash.isEmpty()) return null;
         String cached = redisTemplate.opsForValue().get("ocr:result:" + fileHash);
         if (cached == null) return null;
         OcrClient.OcrResultDTO dto = fromJson(cached);
