@@ -2,13 +2,14 @@ package com.costlink.reimbursement.mq;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.costlink.common.mq.MqConstants;
-import com.costlink.reimbursement.dto.event.ApprovalCompletedEvent;
+import com.costlink.common.mq.event.ApprovalCompletedEvent;
 import com.costlink.reimbursement.dto.event.OcrCompletedEvent;
 import com.costlink.reimbursement.dto.event.OcrFailedEvent;
 import com.costlink.reimbursement.entity.Attachment;
 import com.costlink.reimbursement.entity.Reimbursement;
 import com.costlink.reimbursement.mapper.AttachmentMapper;
 import com.costlink.reimbursement.mapper.ReimbursementMapper;
+import com.costlink.reimbursement.mq.ReimbursementEventPublisher;
 import com.costlink.reimbursement.service.ReimbursementService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,6 +28,7 @@ public class ReimbursementEventConsumer {
     private final ReimbursementMapper reimbursementMapper;
     private final AttachmentMapper attachmentMapper;
     private final ReimbursementService reimbursementService;
+    private final ReimbursementEventPublisher eventPublisher;
 
     @RabbitListener(queues = MqConstants.QUEUE_APPROVAL_COMPLETED)
     @Transactional
@@ -44,11 +46,13 @@ public class ReimbursementEventConsumer {
             r.setStatus("APPROVED");
             r.setApproveTime(LocalDateTime.now());
             reimbursementMapper.updateById(r);
+            eventPublisher.publishReimbursementApproved(r);
             log.info("报销单审批通过, reimbursementId={}", r.getId());
 
         } else if ("REJECTED".equals(event.getAction())) {
             r.setStatus("REJECTED");
             reimbursementMapper.updateById(r);
+            eventPublisher.publishReimbursementRejected(r);
             log.info("报销单审批驳回, reimbursementId={}", r.getId());
         }
     }

@@ -51,13 +51,15 @@ public class BaiduOcrEngine implements OcrEngine {
         long start = System.currentTimeMillis();
 
         try {
-            ResponseEntity<BaiduOcrResponse> response = restTemplate.exchange(
+            ResponseEntity<String> rawResp = restTemplate.exchange(
                     url, HttpMethod.POST,
                     new HttpEntity<>(body, headers),
-                    BaiduOcrResponse.class);
+                    String.class);
+            String rawJson = rawResp.getBody();
 
+            BaiduOcrResponse ocrResp = new com.fasterxml.jackson.databind.ObjectMapper()
+                    .readValue(rawJson, BaiduOcrResponse.class);
             long elapsed = System.currentTimeMillis() - start;
-            BaiduOcrResponse ocrResp = response.getBody();
 
             if (ocrResp == null || !ocrResp.isSuccess()) {
                 String errMsg = ocrResp != null ? ocrResp.getErrorMsg() : "空响应";

@@ -5,77 +5,83 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
 import java.math.BigDecimal;
-import java.util.List;
+import java.util.Map;
 
 /**
  * 百度增值税发票识别 API 返回结构
- * 文档: https://ai.baidu.com/ai-doc/OCR/vk3h7y58v
+ * 注意: vat_invoice 接口的字段格式不统一，部分字段直接为字符串，部分为 {"words":"xxx"}
  */
 @Data
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class BaiduOcrResponse {
 
+    @JsonProperty("log_id")
     private Long logId;
-    private List<InvoiceResult> wordsResult;
+
+    @JsonProperty("words_result")
+    private Map<String, Object> wordsResult;
+
+    @JsonProperty("words_result_num")
     private int wordsResultNum;
+
+    @JsonProperty("error_code")
     private String errorCode;
+
+    @JsonProperty("error_msg")
     private String errorMsg;
 
-    @Data
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    public static class InvoiceResult {
-        private String words;
-    }
-
-    // ========== 结构化提取方法 ==========
-
     public String getInvoiceCode() {
-        return getWord("发票代码");
+        return getStr("InvoiceCode");
     }
 
     public String getInvoiceNumber() {
-        return getWord("发票号码");
+        return getStr("InvoiceNum");
     }
 
     public String getInvoiceDate() {
-        return getWord("开票日期");
+        return getStr("InvoiceDate");
     }
 
     public BigDecimal getTotalAmount() {
-        String val = getWord("价税合计");
-        if (val == null) val = getWord("合计金额");
+        String val = getStr("AmountInFiguers");
+        if (val == null) val = getStr("TotalAmount");
         if (val == null) return null;
         try { return new BigDecimal(val.replaceAll("[^0-9.]", "")); }
         catch (Exception e) { return null; }
     }
 
     public BigDecimal getTaxAmount() {
-        String val = getWord("税额");
+        String val = getStr("TotalTax");
         if (val == null) return null;
         try { return new BigDecimal(val.replaceAll("[^0-9.]", "")); }
         catch (Exception e) { return null; }
     }
 
     public String getSellerName() {
-        return getWord("销售方名称");
+        return getStr("SellerName");
     }
 
     public double getConfidence() {
         return 0.95;
     }
 
-    private String getWord(String key) {
+    /**
+     * 从 words_result 中提取字符串值，兼容直接字符串和 {"words":"xxx"} 两种格式
+     */
+    private String getStr(String key) {
         if (wordsResult == null) return null;
-        for (InvoiceResult r : wordsResult) {
-            if (r.getWords() != null && r.getWords().startsWith(key)) {
-                String val = r.getWords().substring(key.length()).trim();
-                return val.isEmpty() ? null : val.replace("：", "").trim();
-            }
+        Object val = wordsResult.get(key);
+        if (val == null) return null;
+        if (val instanceof String) return ((String) val).trim();
+        if (val instanceof Map) {
+            Object words = ((Map<?, ?>) val).get("words");
+            return words != null ? words.toString().trim() : null;
         }
-        return null;
+        return val.toString().trim();
     }
 
     public boolean isSuccess() {
-        return errorCode == null || "0".equals(errorCode);
+        boolean hasError = errorCode != null && !"0".equals(errorCode);
+        return !hasError;
     }
 }

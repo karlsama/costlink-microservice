@@ -18,7 +18,6 @@ public class BudgetLine {
     private BigDecimal frozenAmount;
     private BigDecimal warningThreshold;
     private String controlStrategy;
-    @Version
     private Integer version;
     @TableLogic
     private Integer deleted;

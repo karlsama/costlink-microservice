@@ -24,23 +24,25 @@ public class RabbitApprovalEventPublisher implements ApprovalEventPublisher {
 
     @Override
     public void publishNodeCompleted(ApprovalInstance inst, ApprovalNode node) {
+        com.costlink.common.mq.event.ApprovalNodeCompletedEvent event =
+                new com.costlink.common.mq.event.ApprovalNodeCompletedEvent(
+                        inst.getReimbursementId(), inst.getId(),
+                        "报销单 #" + inst.getReimbursementId(),
+                        inst.getTotalAmount(),
+                        node.getApproverId(), node.getApproverName());
         rabbitTemplate.convertAndSend(
                 MqConstants.EXCHANGE_APPROVAL,
                 MqConstants.RK_APPROVAL_NODE_COMPLETED,
-                Map.of(
-                        "instanceId", inst.getId(),
-                        "reimbursementId", inst.getReimbursementId(),
-                        "nodeOrder", node.getNodeOrder(),
-                        "approverId", node.getApproverId(),
-                        "approverName", node.getApproverName()
-                ));
+                event);
         log.info("发布节点完成事件, instanceId={}, nodeOrder={}", inst.getId(), node.getNodeOrder());
     }
 
     @Override
     public void publishApprovalCompleted(ApprovalInstance inst, String action) {
         ApprovalCompletedEvent event = new ApprovalCompletedEvent(
-                inst.getReimbursementId(), inst.getId(), action);
+                inst.getReimbursementId(), inst.getId(), action,
+                "报销单 #" + inst.getReimbursementId(),
+                inst.getTotalAmount(), inst.getApplicantId());
         rabbitTemplate.convertAndSend(
                 MqConstants.EXCHANGE_APPROVAL,
                 MqConstants.RK_APPROVAL_COMPLETED,

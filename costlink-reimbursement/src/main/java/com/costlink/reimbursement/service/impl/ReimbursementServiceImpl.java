@@ -195,7 +195,7 @@ public class ReimbursementServiceImpl implements ReimbursementService {
             log.error("预算冻结失败, reimbursementId={}", id, e);
             throw new BusinessException(ErrorCode.REIMBURSEMENT_BUDGET_FREEZE_FAILED);
         }
-        if (!freezeResult.isSuccess()) {
+        if (freezeResult.getData() == null || !freezeResult.getData().getSuccess()) {
             throw new BusinessException(ErrorCode.REIMBURSEMENT_BUDGET_FREEZE_FAILED);
         }
 

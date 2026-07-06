@@ -33,9 +33,10 @@ public class BudgetInternalController {
     }
 
     @GetMapping("/available")
+    @SuppressWarnings("unchecked")
     public Result<BudgetClient.AvailableResponse> getAvailable(
             @RequestParam Long departmentId,
             @RequestParam String category) {
-        return (Result) budgetService.getAvailable(departmentId, category);
+        return (Result<BudgetClient.AvailableResponse>) budgetService.getAvailable(departmentId, category);
     }
 }
